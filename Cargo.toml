@@ -1,0 +1,28 @@
+[package]
+name = "image-rider"
+version = "0.1.0"
+edition = "2021"
+authors = ["Joshua Gerrish <jgerrish@gmail.com>"]
+description = "Disk image and ROM image parser"
+keywords = ["tui", "terminal", "cli", "diskimage", "rom", "image", "emu", "parser", "nom"]
+readme = "README.md"
+repository = "https://github.com/jgerrish/image-rider"
+homepage = "https://github.com/jgerrish/image-rider"
+license = "MIT"
+
+[dependencies]
+config = "0.11"
+unicode-width = "0.1"
+clap = { version = "3.0", features = ["derive"] }
+log = "0.4"
+env_logger = "0.9"
+i18n-embed = { version = "0.13", features = ["fluent-system", "desktop-requester"] }
+rust-embed = "6.3"
+toml = "0.5"
+toml-query = "0.9"
+insta = "1.11"
+nom = "7.1"
+
+[dev-dependencies]
+pretty_assertions = "1.0"
+criterion = "0.3"

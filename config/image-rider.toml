@@ -1,0 +1,2 @@
+debug = true
+locale-file = "i18n.toml"

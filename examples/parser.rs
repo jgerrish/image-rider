@@ -7,7 +7,7 @@ use std::path::Path;
 use std::process::exit;
 
 use clap::Parser;
-use config;
+use config::Config;
 use env_logger;
 use log::{error, info};
 
@@ -50,7 +50,6 @@ pub fn open_file(filename: &str) -> Vec<u8> {
 /// Parse an image file
 fn main() {
     // Load config
-    let mut settings = config::Config::default();
     let mut _debug = true;
 
     // Initialize logger
@@ -58,9 +57,9 @@ fn main() {
         panic!("couldn't initialize logger: {:?}", e);
     }
 
-    let settings_result = load_settings(&mut settings, "config/image-rider.toml");
+    let settings_result = load_settings("config/image-rider.toml");
     match settings_result {
-        Ok(()) => {
+        Ok(settings) => {
             info!("merged in config");
             if let Ok(b) = settings.get_bool("debug") {
                 _debug = b;
@@ -96,15 +95,13 @@ fn main() {
 /// load settings from a config file
 /// returns the config settings as a Config on success, or a ConfigError on failure
 fn load_settings<'a>(
-    settings: &'a mut config::Config,
     config_name: &str,
-) -> Result<(), config::ConfigError> {
-    settings
+) -> Result<Config, config::ConfigError> {
+    Config::builder()
         // Add in config file
-        .merge(config::File::with_name(config_name))?
+        .add_source(config::File::with_name(config_name))
         // Add in settings from the environment (with a prefix of APP)
         // Eg.. `APP_DEBUG=1 ./target/command_bar_widget would set the `debug` key
-        .merge(config::Environment::with_prefix("APP"))?;
-
-    Ok(())
+        .add_source(config::Environment::with_prefix("APP"))
+        .build()
 }

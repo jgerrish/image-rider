@@ -515,15 +515,31 @@ pub fn stx_track_header_parser(i: &[u8]) -> IResult<&[u8], STXTrackHeader> {
     Ok((i, stx_track_header))
 }
 
-/// Return true if this is a boot sector
-pub fn calculate_boot_sector_sum(sector_data: &[u8]) -> bool {
-    // Calculate the sector sum to see if it's a valid boot sector
-    // STX disks may not have valid boot sectors
-    let mut sum: u16 = 0;
+/// Get the 512 bytes of the boot sector as big-endian words (two bytes)
+pub fn parse_boot_sector_as_words(sector_data: &[u8]) -> IResult<&[u8], Vec<u16>> {
+    count(be_u16, 0x100_usize)(sector_data)
+}
 
-    // equivalent to: for i in 0..256 { ... sector_data[i] }
-    for item in sector_data.iter().take(256) {
-        sum += *item as u16;
+/// Return true if this is a boot sector
+/// Calculate the sector sum to see if it's a valid boot sector
+/// The checksum is calculated over the 256 words of the boot sector
+/// These words are in big-endian format
+/// STX disks may not have valid boot sectors
+/// There are a couple signs a STX disk isn't a boot sector
+///   If the boot sector checksum isn't 0x1234
+///   If there is no jump in the first byte of the boot sector
+pub fn calculate_boot_sector_sum_from_words(sector_data: &[u8]) -> bool {
+    let mut sum: u32 = 0;
+
+    let words_result = parse_boot_sector_as_words(sector_data);
+
+    match words_result {
+        Ok((_, words)) => {
+            for word in words {
+                sum = (sum + (word as u32)) % 0xFFFF;
+            }
+        }
+        Err(_) => panic!("Parsing failed for boot sector checksum"),
     }
 
     sum == 0x1234
@@ -553,6 +569,9 @@ pub fn stx_sector_data_parser<'a>(
 
         // TODO: Verify this is the correct data and flags are interpreted correctly
         //       The track_image_size isn't being skipped here
+        // Sector 0 (sector 1 in Atari ST docs) output appears to be a good Atari ST
+        // boot sector compatible with MS-DOS 2.x
+        // Pass this data to the FAT code
         let filename = PathBuf::from(format!(
             "data/testdata-sector-{}.img",
             stx_track_header.track_number
@@ -828,7 +847,10 @@ pub fn crc16_add_byte(crc: u16, byte: u8) -> u16 {
 mod tests {
     use super::SanityCheck;
     use super::CCITT_CRC16_POLY;
-    use super::{crc16_add_byte, stx_disk_header_parser, stx_track_header_parser};
+    use super::{
+        calculate_boot_sector_sum_from_words, crc16_add_byte, parse_boot_sector_as_words,
+        stx_disk_header_parser, stx_track_header_parser,
+    };
 
     /// Test calculating a CRC16
     #[test]
@@ -947,5 +969,50 @@ mod tests {
             }
             Err(e) => panic!("Parsing failed on the STX disk header: {}", e),
         }
+    }
+
+    /// Test that converting the boot sector to words works
+    #[test]
+    fn parse_boot_sector_as_words_works() {
+        let mut boot_sector = [0_u8; 512];
+
+        // equivalent to: for i in 0..256 { ... sector_data[i] }
+        // for item in sector_data.iter().take(256) {
+
+        for i in 0..512 {
+            boot_sector[i] = (i & 0x00FF) as u8;
+        }
+
+        let words_result = parse_boot_sector_as_words(&boot_sector);
+
+        match words_result {
+            Ok((_, words)) => {
+                let mut cnt = 0;
+                for word in words.iter() {
+                    let byte1: u16 = cnt & 0xFF;
+                    cnt += 1;
+                    let byte2: u16 = cnt & 0xFF;
+                    cnt += 1;
+
+                    // first byte is most-significant byte in big endian
+                    let i: u16 = (byte1 << 8) + byte2;
+                    assert_eq!(*word, i);
+                }
+            }
+            Err(_) => panic!("Parsing failed for boot sector checksum"),
+        }
+    }
+
+    /// Test parsing STX boot sector checksum
+    #[test]
+    fn stx_boot_sector_checksum_works() {
+        let mut boot_sector = [0_u8; 512];
+
+        boot_sector[0] = 0x12;
+        boot_sector[1] = 0x34;
+
+        let checksum = calculate_boot_sector_sum_from_words(&boot_sector);
+
+        assert_eq!(checksum, true);
     }
 }

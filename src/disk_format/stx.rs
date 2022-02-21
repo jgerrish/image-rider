@@ -195,7 +195,7 @@ impl Display for STXTrackHeader {
         )?;
         writeln!(
             f,
-            "         bit5(has-track-image): {}",
+            "         bit5(track-is-proteced): {}",
             // bit 5
             if (self.flags & 0x20) == 0x20 {
                 "T"
@@ -205,7 +205,7 @@ impl Display for STXTrackHeader {
         )?;
         writeln!(
             f,
-            "         bit6(track-is-proteced): {}",
+            "         bit6(has-track-image): {}",
             // bit 6
             if (self.flags & 0x40) == 0x40 {
                 "T"
@@ -376,14 +376,11 @@ impl Display for STXSector {
 /// after the sector headers if they exist, or just after the track headers
 pub struct STXTrackImageHeader {
     /// The first sync offset
-    /// This field exists if the track flags bit 5 and 6 are set
+    /// This field exists if the track flags bit 7
     pub first_sync_offset: u16,
     /// The track image size
-    /// This field exists if the track flags bit 5 is set
+    /// This field exists if the track flags bit 6 is set
     pub track_image_size: u16,
-    // The sector data offset base
-    // This field exists if the track flags bit 5 is set
-    //pub sector_data_offset_base: u8,
 }
 
 /// Display a single sector
@@ -411,7 +408,7 @@ pub fn stx_track_image_header_parser(
         // If flag bit 6 and 7 are set, get the first sync offset
         let (i, first_sync_offset) =
             cond(((flags & 0x40) != 0) && ((flags & 0x80) != 0), le_u16)(i)?;
-        // If flag bit six is set, get the track image size
+        // If flag bit 6 is set, get the track image size
         let (i, track_image_size) = cond((flags & 0x40) != 0, le_u16)(i)?;
 
         let stx_track_image_header = STXTrackImageHeader {
@@ -630,7 +627,7 @@ pub fn stx_track_parser(i: &[u8]) -> IResult<&[u8], STXTrack> {
 
             // The track image data
             // First the header, two or four bytes depending on the flags
-            // If track flags bit three (starting from bit zero) is set
+            // If track flags bit six (starting from bit zero) is set
             //   Then also test bit seven.
             //     If bit seven is set, read in two bytes, the first sync offset
             //   Then read read in the track image size, two bytes

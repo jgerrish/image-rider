@@ -22,7 +22,6 @@ toml = "0.5"
 toml-query = "0.9"
 insta = "1.12"
 nom = "7.1"
-image-rider-fat = { version = "0.1.0", path = "/home/josh/src/rust/image-rider-fat" }
 time = "0.3"
 
 [dev-dependencies]

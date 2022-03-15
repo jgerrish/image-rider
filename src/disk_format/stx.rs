@@ -655,8 +655,11 @@ pub fn stx_track_parser(i: &[u8]) -> IResult<&[u8], STXTrack> {
                 //stx_sector_data_parser(&stx_track_header, &stx_sector_headers)(stx_track_image_header_result.0)?;
                 stx_sector_data_parser(&stx_track_header, &stx_sector_headers)(i)?;
 
-            (stx_track_image_header_result.0, Some(stx_sector_headers),
-             Some(stx_sector_data_parser_result.1))
+            (
+                stx_track_image_header_result.0,
+                Some(stx_sector_headers),
+                Some(stx_sector_data_parser_result.1),
+            )
         } else {
             (i, None, None)
         };

@@ -11,7 +11,7 @@ use config::Config;
 use env_logger;
 use log::{error, info};
 
-use image_rider::disk_format::image::{disk_image_parser, disk_image_data};
+use image_rider::disk_format::image::{disk_image_data, disk_image_parser};
 
 /// Command line arguments to parse an image file
 #[derive(Parser, Debug)]

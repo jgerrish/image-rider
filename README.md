@@ -18,3 +18,7 @@ You can run the example application with the following command:
 
 RUST_LOG=debug cargo run --example parser -- --input FILENAME
 
+To save track or sector image data (for example, the FAT filesystem
+embedded in a STX image):
+
+RUST_LOG=debug cargo run --example parser -- --input INFILENAME --output OUTFILENAME

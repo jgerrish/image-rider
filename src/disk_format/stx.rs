@@ -26,9 +26,6 @@
 /// pce https://github.com/jsdf/pce.git
 ///   (easy to understand code)
 use std::fmt::{Display, Formatter, Result};
-use std::fs::File;
-use std::io::Write;
-use std::path::PathBuf;
 
 use log::{debug, error, info};
 
@@ -40,6 +37,8 @@ use nom::IResult;
 
 use crate::disk_format::sanity_check::SanityCheck;
 
+// use image_rider_fat::fat::fat_boot_sector_parser;
+
 /// A STX disk image
 #[derive(Debug)]
 pub struct STXDisk<'a> {
@@ -47,7 +46,7 @@ pub struct STXDisk<'a> {
     pub stx_disk_header: STXDiskHeader<'a>,
 
     /// The disk tracks
-    pub stx_tracks: Vec<STXTrack>,
+    pub stx_tracks: Vec<STXTrack<'a>>,
 }
 
 /// Format a STXDisk for display
@@ -234,16 +233,19 @@ impl Display for STXTrackHeader {
 
 /// A STXTrack contains a STXTrackHeader
 #[derive(Debug)]
-pub struct STXTrack {
+pub struct STXTrack<'a> {
     /// Thea header for this track
     pub header: STXTrackHeader,
 
     /// The sector headers in this track
     pub sector_headers: Option<Vec<STXSectorHeader>>,
+
+    /// The sector data for this track
+    pub sector_data: Option<Vec<&'a [u8]>>,
 }
 
 /// Display a single track
-impl Display for STXTrack {
+impl Display for STXTrack<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         write!(f, "header: {}", self.header)
     }
@@ -528,6 +530,8 @@ pub fn parse_boot_sector_as_words(sector_data: &[u8]) -> IResult<&[u8], Vec<u16>
 /// There are a couple signs a STX disk isn't a boot sector
 ///   If the boot sector checksum isn't 0x1234
 ///   If there is no jump in the first byte of the boot sector
+/// This is the checksum for FAT disks, not STX disks
+/// TODO: Double check this code is in the right crate
 pub fn calculate_boot_sector_sum_from_words(sector_data: &[u8]) -> bool {
     let mut sum: u32 = 0;
 
@@ -547,7 +551,7 @@ pub fn calculate_boot_sector_sum_from_words(sector_data: &[u8]) -> bool {
 
 /// Parse all the data after the sector headers, fuzzy mask and track image header.
 pub fn stx_sector_data_parser<'a>(
-    stx_track_header: &'a STXTrackHeader,
+    _stx_track_header: &'a STXTrackHeader,
     stx_sector_headers: &'a [STXSectorHeader],
 ) -> impl Fn(&[u8]) -> IResult<&[u8], Vec<&[u8]>> + 'a {
     move |i| {
@@ -572,19 +576,6 @@ pub fn stx_sector_data_parser<'a>(
         // Sector 0 (sector 1 in Atari ST docs) output appears to be a good Atari ST
         // boot sector compatible with MS-DOS 2.x
         // Pass this data to the FAT code
-        let filename = PathBuf::from(format!(
-            "data/testdata-sector-{}.img",
-            stx_track_header.track_number
-        ));
-        let file_result = File::create(filename);
-        match file_result {
-            Ok(mut file) => {
-                for sector_data in &all_sector_data {
-                    let _res = file.write_all(sector_data);
-                }
-            }
-            Err(e) => error!("Error opening file: {}", e),
-        }
 
         Ok((i, all_sector_data))
     }
@@ -607,13 +598,13 @@ pub fn stx_track_parser(i: &[u8]) -> IResult<&[u8], STXTrack> {
         panic!("Invalid data");
     }
 
-    let (_, sector_headers) = if (stx_track_header.flags & 0x01) != 0x01 {
+    let (_, sector_headers, sector_data) = if (stx_track_header.flags & 0x01) != 0x01 {
         // Parse a plain data track
         if stx_track_header.sectors_count > 0 {
             let stx_sector = stx_sector_parser_plain(stx_track_header.sectors_count as usize)(i)?;
-            (stx_sector.0, None)
+            (stx_sector.0, None, None)
         } else {
-            (i, None)
+            (i, None, None)
         }
     } else {
         // Parse a set of sector headers
@@ -630,7 +621,7 @@ pub fn stx_track_parser(i: &[u8]) -> IResult<&[u8], STXTrack> {
         // The last track has issues parsing in some cases, we hit EOF
         // The last tracks are sometimes flag 0x21 and not 0x61, we need to
         // deal with each track image data separately
-        let (i, sector_headers) = if stx_track_header.sectors_count > 0 {
+        let (i, sector_headers, sector_data) = if stx_track_header.sectors_count > 0 {
             let stx_sector_headers_result = count(
                 stx_sector_header_parser,
                 stx_track_header.sectors_count as usize,
@@ -660,16 +651,17 @@ pub fn stx_track_parser(i: &[u8]) -> IResult<&[u8], STXTrack> {
                 stx_track_image_header_result.1
             );
 
-            // Comment this out for now
-            // let _stx_sector_data_parser_result =
-            //     stx_sector_data_parser(&stx_track_header, &stx_sector_headers)(i)?;
+            let stx_sector_data_parser_result =
+                //stx_sector_data_parser(&stx_track_header, &stx_sector_headers)(stx_track_image_header_result.0)?;
+                stx_sector_data_parser(&stx_track_header, &stx_sector_headers)(i)?;
 
-            (stx_track_image_header_result.0, Some(stx_sector_headers))
+            (stx_track_image_header_result.0, Some(stx_sector_headers),
+             Some(stx_sector_data_parser_result.1))
         } else {
-            (i, None)
+            (i, None, None)
         };
 
-        (i, sector_headers)
+        (i, sector_headers, sector_data)
     };
 
     // TODO: Fix up the other track image data parsing
@@ -684,6 +676,7 @@ pub fn stx_track_parser(i: &[u8]) -> IResult<&[u8], STXTrack> {
         STXTrack {
             header: stx_track_header,
             sector_headers,
+            sector_data,
         },
     ))
 }
@@ -1004,6 +997,8 @@ mod tests {
     }
 
     /// Test parsing STX boot sector checksum
+    /// TODO: This may not be an Atari ST checksum, move it into FAT
+    /// and maybe remove it from here
     #[test]
     fn stx_boot_sector_checksum_works() {
         let mut boot_sector = [0_u8; 512];

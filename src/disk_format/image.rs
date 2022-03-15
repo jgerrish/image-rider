@@ -1,7 +1,7 @@
 /// Generic image formater parser
 /// Parses a variety of disk image, ROM and other binary formats
 use std::fmt::{Display, Formatter, Result};
-//use log::{debug, error, info};
+use log::info;
 use nom::branch::alt;
 use nom::combinator::map;
 use nom::IResult;
@@ -36,4 +36,33 @@ pub fn disk_image_parser(i: &[u8]) -> IResult<&[u8], DiskImage> {
         map(d64_disk_parser, DiskImage::D64),
         map(stx_disk_parser, DiskImage::STX),
     ))(i)
+}
+
+/// Function to collect the actual disk image data from a disk image and return
+/// it as a &[u8]
+pub fn disk_image_data<'a>(disk_image: DiskImage) -> Option<Vec<u8>> {
+    let mut disk_image_data = Vec::new();
+
+    match disk_image {
+        DiskImage::STX(image_data) => {
+            for track in image_data.stx_tracks {
+                match track.sector_data {
+                    Some(sector_data) => {
+                        // TODO: this could be simplified with iterator/fold
+                        for sector in sector_data {
+                            for byte in sector {
+                                disk_image_data.push(*byte);
+                            }
+                        }
+                    }
+                    None => { },
+                }
+            }
+            return Some(disk_image_data);
+        },
+        _ => {
+            info!("Unsupported image for file saving");
+            return None;
+        }
+    }
 }

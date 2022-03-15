@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 authors = ["Joshua Gerrish <jgerrish@gmail.com>"]
 description = "Disk image and ROM image parser"
-keywords = ["tui", "terminal", "cli", "diskimage", "rom", "image", "emu", "parser", "nom"]
+keywords = ["filesystem", "tui", "terminal", "cli", "diskimage", "rom", "image", "emu", "parser", "nom"]
 readme = "README.md"
 repository = "https://github.com/jgerrish/image-rider"
 homepage = "https://github.com/jgerrish/image-rider"
@@ -22,6 +22,8 @@ toml = "0.5"
 toml-query = "0.9"
 insta = "1.12"
 nom = "7.1"
+image-rider-fat = { version = "0.1.0", path = "/home/josh/src/rust/image-rider-fat" }
+time = "0.3"
 
 [dev-dependencies]
 pretty_assertions = "1.1"

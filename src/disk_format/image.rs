@@ -39,23 +39,33 @@ pub fn disk_image_parser(i: &[u8]) -> IResult<&[u8], DiskImage> {
 }
 
 /// Function to collect the actual disk image data from a disk image and return
-/// it as a &[u8]
+/// it as an Option<Vec<u8>>
+/// This doesn't return track data, only the sector data.
+/// It should have more tests around the different disk types
 pub fn disk_image_data(disk_image: DiskImage) -> Option<Vec<u8>> {
-    let mut disk_image_data = Vec::new();
-
     match disk_image {
         DiskImage::STX(image_data) => {
-            for track in image_data.stx_tracks {
-                if let Some(sector_data) = track.sector_data {
-                    // TODO: this could be simplified with iterator/fold
-                    for sector in sector_data {
-                        for byte in sector {
-                            disk_image_data.push(*byte);
-                        }
-                    }
-                }
-            }
-            Some(disk_image_data)
+            // It may be more efficient to return sector-size &[u8] iterators
+            Some(
+                image_data
+                    .stx_tracks
+                    .iter()
+                    .filter(|s| s.sector_data.is_some())
+                    .flat_map(|s| (*s).sector_data.as_ref().unwrap().iter())
+                    .flat_map(|bytes| (*bytes).iter())
+                    .copied()
+                    .collect(),
+            )
+            // For readability comparison:
+            // for track in image_data.stx_tracks {
+            //     if let Some(sector_data) = track.sector_data {
+            //         for sector in sector_data {
+            //             for byte in sector {
+            //                 disk_image_data.push(*byte);
+            //             }
+            //         }
+            //     }
+            // }
         }
         _ => {
             info!("Unsupported image for file saving");

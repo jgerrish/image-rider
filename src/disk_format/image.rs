@@ -7,7 +7,7 @@ use nom::IResult;
 use std::fmt::{Display, Formatter, Result};
 
 use crate::disk_format::d64::{d64_disk_parser, D64Disk};
-use crate::disk_format::stx::{stx_disk_parser, STXDisk};
+use crate::disk_format::stx::disk::{stx_disk_parser, STXDisk};
 
 /// The different kinds of disk images
 pub enum DiskImage<'a, 'b> {

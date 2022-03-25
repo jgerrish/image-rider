@@ -19,11 +19,10 @@ env_logger = "0.9"
 i18n-embed = { version = "0.13", features = ["fluent-system", "desktop-requester"] }
 rust-embed = "6.3"
 toml = "0.5"
-toml-query = "0.9"
-insta = "1.12"
+insta = "1.13"
 nom = "7.1"
 time = "0.3"
 
 [dev-dependencies]
 pretty_assertions = "1.1"
-criterion = "0.3"
+# criterion = "0.3"

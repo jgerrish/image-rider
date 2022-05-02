@@ -243,12 +243,6 @@ impl Display for AppleDiskGuess {
 }
 
 /// Try to guess a file format from a filename
-/// metadata calls may not work in GitHub Actions environments
-/// Disabling tests for this unconditionally for now
-/// It should be conditionally enabled for non-GitHub Actions environments
-/// There are a couple long-term solutions to this problem outlined here:
-/// https://github.com/rust-lang/rust/issues/68007
-/// https://internals.rust-lang.org/t/pre-rfc-skippable-tests/14611
 pub fn format_from_filename(filename: &str) -> Option<AppleDiskGuess> {
     let filename_extension: Vec<_> = filename.split('.').collect();
     let path = Path::new(&filename);
@@ -375,12 +369,15 @@ pub fn apple_disk_parser(
 
 #[cfg(test)]
 mod tests {
+    use std::fs::OpenOptions;
+    use std::io::Write;
     use std::path::Path;
 
     use config::Config;
 
     use super::{
-        apple_disk_parser, parse_volume_table_of_contents, AppleDiskGuess, Encoding, Format,
+        apple_disk_parser, format_from_filename, parse_volume_table_of_contents, AppleDiskGuess,
+        Encoding, Format,
     };
 
     const VTOC_DATA: [u8; 256] = [
@@ -403,6 +400,54 @@ mod tests {
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         0x00,
     ];
+
+    /// metadata calls may not work in GitHub Actions environments
+    /// Disabling tests for this unconditionally for now
+    /// It should be conditionally enabled for non-GitHub Actions environments
+    /// There are a couple long-term solutions to this problem outlined here:
+    /// https://github.com/rust-lang/rust/issues/68007
+    /// https://internals.rust-lang.org/t/pre-rfc-skippable-tests/14611
+    #[allow(dead_code)]
+    #[test]
+    #[ignore]
+    fn format_from_filename_works() {
+        let filename = "testdata/test-format_from_filename_works.dsk";
+
+        /* Version where we build the file in the test instead of
+         * saving it to version control */
+        let path = Path::new(&filename);
+        let mut file = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .open(path)
+            .unwrap_or_else(|e| {
+                panic!("Couldn't open file: {}", e);
+            });
+        let data: [u8; 143360] = [0; 143360];
+
+        file.write_all(&data).unwrap_or_else(|e| {
+            panic!("Error writing test file: {}", e);
+        });
+        file.flush().unwrap_or_else(|e| {
+            panic!("Couldn't flush file stream: {}", e);
+        });
+
+        let guess = format_from_filename(filename).unwrap_or_else(|| {
+            panic!("Invalid filename guess");
+        });
+
+        assert_eq!(
+            guess,
+            AppleDiskGuess {
+                encoding: Encoding::Plain,
+                format: Format::DOS(143360),
+            }
+        );
+
+        std::fs::remove_file(filename).unwrap_or_else(|e| {
+            panic!("Error removing test file: {}", e);
+        });
+    }
 
     /// Test parsing a Volume Table of Contents
     #[test]

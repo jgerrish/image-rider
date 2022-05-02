@@ -152,6 +152,7 @@ mod tests {
 
     /// Test collecting heuristics on disk image type
     #[test]
+    #[ignore]
     fn format_from_filename_works() {
         let filename = "testdata/test.dsk";
 

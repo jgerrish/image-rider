@@ -369,6 +369,8 @@ pub fn apple_disk_parser(
 
 #[cfg(test)]
 mod tests {
+    use std::fs::OpenOptions;
+    use std::io::Write;
     use std::path::Path;
 
     use config::Config;
@@ -407,14 +409,26 @@ mod tests {
         /* Version where we build the file in the test instead of
          * saving it to version control */
         let path = Path::new(&filename);
+        let mut file = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .open(path)
+            .unwrap_or_else(|e| {
+                panic!("Couldn't open file: {}", e);
+            });
         let data: [u8; 143360] = [0; 143360];
-        std::fs::write(&path, data).unwrap_or_else(|e| {
+
+        file.write_all(&data).unwrap_or_else(|e| {
             panic!("Error writing test file: {}", e);
+        });
+        file.flush().unwrap_or_else(|e| {
+            panic!("Couldn't flush file stream: {}", e);
         });
 
         let guess = format_from_filename(filename).unwrap_or_else(|| {
             panic!("Invalid filename guess");
         });
+
         assert_eq!(
             guess,
             AppleDiskGuess {

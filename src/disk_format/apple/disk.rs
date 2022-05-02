@@ -401,17 +401,10 @@ mod tests {
         0x00,
     ];
 
-    /// metadata calls may not work in GitHub Actions environments
-    /// Disabling tests for this unconditionally for now
-    /// It should be conditionally enabled for non-GitHub Actions environments
-    /// There are a couple long-term solutions to this problem outlined here:
-    /// https://github.com/rust-lang/rust/issues/68007
-    /// https://internals.rust-lang.org/t/pre-rfc-skippable-tests/14611
-    #[allow(dead_code)]
+    /// Try testing format_from_filename
     #[test]
-    #[ignore]
     fn format_from_filename_works() {
-        let filename = "testdata/test-format_from_filename_works.dsk";
+        let filename = "testdata/test-disk_format_from_filename_works.dsk";
 
         /* Version where we build the file in the test instead of
          * saving it to version control */

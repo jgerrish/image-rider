@@ -146,36 +146,59 @@ pub fn disk_image_data(disk_image: DiskImage) -> Option<Vec<u8>> {
 
 #[cfg(test)]
 mod tests {
+    use std::fs::OpenOptions;
+    use std::io::Write;
+    use std::path::Path;
+
     use super::apple::disk::{Encoding, Format};
     use super::AppleDiskGuess;
     use super::{format_from_filename, DiskImageGuess};
 
     /// Test collecting heuristics on disk image type
     #[test]
-    #[ignore]
     fn format_from_filename_works() {
-        let filename = "testdata/test.dsk";
+        let filename = "testdata/test-image_format_from_filename_works.dsk";
 
-        let res = format_from_filename(filename);
+        /* Version where we build the file in the test instead of
+         * saving it to version control */
+        let path = Path::new(&filename);
+        let mut file = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .open(path)
+            .unwrap_or_else(|e| {
+                panic!("Couldn't open file: {}", e);
+            });
+        let data: [u8; 143360] = [0; 143360];
 
-        match res {
-            Some(guess) => match guess {
-                DiskImageGuess::Apple(g) => {
-                    assert_eq!(
-                        g,
-                        AppleDiskGuess {
-                            encoding: Encoding::Plain,
-                            format: Format::DOS(143360),
-                        }
-                    );
-                }
-                _ => {
-                    panic!("Invalid filename guess");
-                }
-            },
-            None => {
+        file.write_all(&data).unwrap_or_else(|e| {
+            panic!("Error writing test file: {}", e);
+        });
+        file.flush().unwrap_or_else(|e| {
+            panic!("Couldn't flush file stream: {}", e);
+        });
+
+        let guess = format_from_filename(filename).unwrap_or_else(|| {
+            panic!("Invalid filename guess");
+        });
+
+        match guess {
+            DiskImageGuess::Apple(g) => {
+                assert_eq!(
+                    g,
+                    AppleDiskGuess {
+                        encoding: Encoding::Plain,
+                        format: Format::DOS(143360),
+                    }
+                );
+            }
+            _ => {
                 panic!("Invalid filename guess");
             }
         }
+
+        std::fs::remove_file(filename).unwrap_or_else(|e| {
+            panic!("Error removing test file: {}", e);
+        });
     }
 }

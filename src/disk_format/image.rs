@@ -1,4 +1,6 @@
+use config::Config;
 use log::info;
+
 use nom::branch::alt;
 use nom::combinator::map;
 use nom::IResult;
@@ -6,6 +8,10 @@ use nom::IResult;
 /// Parses a variety of disk image, ROM and other binary formats
 use std::fmt::{Display, Formatter, Result};
 
+use crate::disk_format::apple::{
+    self,
+    disk::{apple_disk_parser, AppleDisk, AppleDiskGuess},
+};
 use crate::disk_format::d64::{d64_disk_parser, D64Disk};
 use crate::disk_format::stx::disk::{stx_disk_parser, STXDisk};
 
@@ -15,15 +21,68 @@ pub enum DiskImage<'a, 'b> {
     D64(D64Disk<'b>),
     /// An Atari ST STX Disk Image
     STX(STXDisk<'a>),
+    /// An Apple ][ Disk Image
+    Apple(AppleDisk<'a>),
 }
 
-// Display a DiskImage
+/// Display a DiskImage
 impl Display for DiskImage<'_, '_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         match self {
             DiskImage::D64(d) => write!(f, "D64 Disk: {}", d),
             DiskImage::STX(d) => write!(f, "STX Disk: {}", d),
+            DiskImage::Apple(d) => write!(f, "Apple Disk: {}", d),
         }
+    }
+}
+
+/// The result of heuristics to guess a disk image
+/// Certain disk images can be guessed accurately based on filenames
+/// This returns a guess that can be used to guide the parsing process
+/// Later versions can include a parser generator trait that returns the recommended
+/// parser
+pub enum DiskImageGuess {
+    /// A Commodore D64 Disk Image
+    D64,
+    /// An Atari ST STX Disk Image
+    STX,
+    /// An Apple ][ Disk Image
+    Apple(AppleDiskGuess),
+}
+
+/// Display a DiskImageGuess
+impl Display for DiskImageGuess {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        match self {
+            DiskImageGuess::D64 => write!(f, "D64 Disk"),
+            DiskImageGuess::STX => write!(f, "STX Disk"),
+            DiskImageGuess::Apple(d) => write!(f, "Apple Disk: {}", d),
+        }
+    }
+}
+
+/// Parses a file given a filename, returning a DiskImage
+pub fn file_parser<'a>(
+    filename: &str,
+    data: &'a [u8],
+    config: &Config,
+) -> IResult<&'a [u8], DiskImage<'a, 'a>> {
+    let guess_image_type = format_from_filename(filename);
+
+    info!(
+        "config ignore-checksums: {:?}",
+        config.get_bool("ignore-checksums")
+    );
+
+    match guess_image_type {
+        Some(i) => match i {
+            DiskImageGuess::Apple(guess) => {
+                let result = apple_disk_parser(Some(guess), config)(data)?;
+                Ok((result.0, DiskImage::Apple(result.1)))
+            }
+            _ => panic!("Exiting"),
+        },
+        None => disk_image_parser(data),
     }
 }
 
@@ -38,9 +97,20 @@ pub fn disk_image_parser(i: &[u8]) -> IResult<&[u8], DiskImage> {
     ))(i)
 }
 
+/// Guess an image format from a filename
+pub fn format_from_filename(filename: &str) -> Option<DiskImageGuess> {
+    // TODO: format_from_filename should be defined by a trait, and
+    // each module should expose a type that implements that trait
+    let apple_res = apple::disk::format_from_filename(filename);
+    apple_res.map(DiskImageGuess::Apple)
+    // match apple_res {
+    //     None => None,
+    //     Some(res) => Some(DiskImageGuess::Apple(res)),
+    // }
+}
+
 /// Function to collect the actual disk image data from a disk image and return
 /// it as an Option<Vec<u8>>
-/// This doesn't return track data, only the sector data.
 /// It should have more tests around the different disk types
 pub fn disk_image_data(disk_image: DiskImage) -> Option<Vec<u8>> {
     match disk_image {
@@ -70,6 +140,41 @@ pub fn disk_image_data(disk_image: DiskImage) -> Option<Vec<u8>> {
         _ => {
             info!("Unsupported image for file saving");
             None
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::apple::disk::{Encoding, Format};
+    use super::AppleDiskGuess;
+    use super::{format_from_filename, DiskImageGuess};
+
+    /// Test collecting heuristics on disk image type
+    #[test]
+    fn format_from_filename_works() {
+        let filename = "testdata/test.dsk";
+
+        let res = format_from_filename(filename);
+
+        match res {
+            Some(guess) => match guess {
+                DiskImageGuess::Apple(g) => {
+                    assert_eq!(
+                        g,
+                        AppleDiskGuess {
+                            encoding: Encoding::Plain,
+                            format: Format::DOS(143360),
+                        }
+                    );
+                }
+                _ => {
+                    panic!("Invalid filename guess");
+                }
+            },
+            None => {
+                panic!("Invalid filename guess");
+            }
         }
     }
 }

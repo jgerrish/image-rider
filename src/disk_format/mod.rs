@@ -15,3 +15,6 @@ pub mod d64;
 
 /// STX disk images
 pub mod stx;
+
+/// Apple disk images
+pub mod apple;

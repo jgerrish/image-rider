@@ -10,6 +10,8 @@ The following formats are currently detected.  Parsing is not fully
 implemented for any of them yet.
 
 D64: A Commodore 64 D64 Disk Image
+DSK: Apple ][ DOS Disk Image
+NIB: Apple ][ Nibble encoded Disk Image
 STX: An Atari ST STX Disk Image
 
 # Usage

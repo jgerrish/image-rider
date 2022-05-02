@@ -22,6 +22,7 @@ toml = "0.5"
 insta = "1.13"
 nom = "7.1"
 time = "0.3"
+# clap-config-source = { version = "0.1.0", path = "../clap-config-source" }
 
 [dev-dependencies]
 pretty_assertions = "1.1"

@@ -11,7 +11,7 @@ use config::Config;
 use env_logger;
 use log::{error, info};
 
-use image_rider::disk_format::image::{disk_image_data, disk_image_parser};
+use image_rider::disk_format::image::{disk_image_data, file_parser};
 
 /// Command line arguments to parse an image file
 #[derive(Parser, Debug)]
@@ -20,10 +20,13 @@ struct Args {
     /// Filename to parse
     #[clap(short, long)]
     input: String,
-    /// Filename to write track image data to
-    /// This writes the entire disk to a single file
+    /// Filename to write track image data to,
+    /// this writes the entire disk to a single file
     #[clap(short, long)]
     output: Option<String>,
+    /// Ignore any failed checksums on the disk data
+    #[clap(long)]
+    ignore_checksums: bool,
 }
 
 /// Open up a file and read in the data
@@ -53,6 +56,9 @@ pub fn open_file(filename: &str) -> Vec<u8> {
 
 /// Parse an image file
 fn main() {
+    // Parse command line arguments
+    let args = Args::parse();
+
     // Load config
     let mut _debug = true;
 
@@ -62,25 +68,31 @@ fn main() {
     }
 
     let settings_result = load_settings("config/image-rider.toml");
-    match settings_result {
+    let mut settings = match settings_result {
         Ok(settings) => {
             info!("merged in config");
             if let Ok(b) = settings.get_bool("debug") {
                 _debug = b;
             }
+            settings
         }
         Err(s) => {
-            error!("error loading config: {:?}", s)
+            error!("error loading config: {:?}", s);
+            Config::default()
         }
     };
 
-    // Parse command line arguments
-    let args = Args::parse();
+    // See the comment in the load_settings function about a better solution to this
+    if args.ignore_checksums == true {
+        #[allow(deprecated)]
+        settings
+            .set("ignore-checksums", args.ignore_checksums)
+            .unwrap();
+    }
 
     let data = open_file(&args.input);
 
-    // Parse the image data
-    let result = disk_image_parser(&data);
+    let result = file_parser(&args.input, &data, &settings);
 
     let image = match result {
         Err(e) => {
@@ -117,11 +129,13 @@ fn main() {
 /// load settings from a config file
 /// returns the config settings as a Config on success, or a ConfigError on failure
 fn load_settings<'a>(config_name: &str) -> Result<Config, config::ConfigError> {
-    Config::builder()
+    let builder = Config::builder()
         // Add in config file
         .add_source(config::File::with_name(config_name))
         // Add in settings from the environment (with a prefix of APP)
         // Eg.. `APP_DEBUG=1 ./target/command_bar_widget would set the `debug` key
         .add_source(config::Environment::with_prefix("APP"))
-        .build()
+        .build();
+
+    builder
 }

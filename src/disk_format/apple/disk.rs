@@ -403,8 +403,14 @@ mod tests {
 
     /// Test collecting heuristics on Apple disk images
     /// metadata calls may not work in GitHub Actions environments
-    #[test]
-    #[ignore]
+    /// Disabling this test unconditionally for now
+    /// It should be conditionally enabled for non-GitHub Actions environments
+    /// There are a couple long-term solutions to this problem outlined here:
+    /// https://github.com/rust-lang/rust/issues/68007
+    /// https://internals.rust-lang.org/t/pre-rfc-skippable-tests/14611
+    #[allow(dead_code)]
+    // #[test]
+    // #[ignore]
     fn format_from_filename_works() {
         let filename = "testdata/test-format_from_filename_works.dsk";
 

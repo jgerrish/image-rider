@@ -1,9 +1,8 @@
 /// Disk-level functions and data structures for Apple disks.
 use log::{debug, error};
 
-use std::fs::{self, File};
-use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::fs;
+use std::path::Path;
 
 use config::Config;
 
@@ -18,6 +17,8 @@ use std::fmt::{Display, Formatter, Result};
 use crate::disk_format::apple::catalog::{parse_catalog, Catalog};
 use crate::disk_format::apple::nibble::parse_nib_disk;
 use crate::disk_format::sanity_check::SanityCheck;
+
+use super::nibble::NibbleDisk;
 
 /// The different types of endoding wrappers for the disks
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -204,13 +205,8 @@ impl SanityCheck for VolumeTableOfContents<'_> {
     }
 }
 
-/// An Apple ][ Disk
-//#[derive(Debug)]
-pub struct AppleDisk<'a> {
-    /// The disk encoding
-    pub encoding: Encoding,
-    /// The disk format
-    pub format: Format,
+/// An Apple ][ DOS Disk
+pub struct AppleDOSDisk<'a> {
     /// The Volume Table of Contents
     pub volume_table_of_contents: VolumeTableOfContents<'a>,
     /// The disk catalog
@@ -219,12 +215,64 @@ pub struct AppleDisk<'a> {
     pub _tracks: Vec<&'a [u8]>,
 }
 
+/// The different types of Apple disks
+pub enum AppleDiskData<'a> {
+    /// An Apple ][ DOS disk (1.x, 2.x, 3.x)
+    DOS(AppleDOSDisk<'a>),
+    /// An Apple ][ ProDOS disk
+    ProDOS,
+    /// A nibble encoded disk (may contain a DOS image or other data)
+    Nibble(NibbleDisk),
+}
+
+/// An Apple ][ Disk
+//#[derive(Debug)]
+pub struct AppleDisk<'a> {
+    /// The disk encoding
+    pub encoding: Encoding,
+    /// The disk format
+    pub format: Format,
+
+    /// The parsed disk data
+    pub data: AppleDiskData<'a>,
+}
+
 /// Format an AppleDisk for display
 impl Display for AppleDisk<'_> {
     fn fmt(&self, f: &mut Formatter) -> Result {
         write!(f, "encoding: {}, format: {}", self.encoding, self.format)
     }
 }
+
+// impl DiskImageParser for AppleDisk<'_> {
+//     fn parse_disk_image<'a>(config: &Config, filename: &str, data: &[u8])
+//                         -> IResult<&'a [u8], DiskImage<'a>> {
+//         let guess = format_from_filename(filename);
+
+//         let (i, disk) = apple_disk_parser(guess, config)(data)?;
+//         Ok((i, DiskImage::Apple(disk)))
+//     }
+//     info!(
+//         "config ignore-checksums: {:?}",
+//         config.get_bool("ignore-checksums")
+//     );
+
+//     match guess_image_type {
+//         Some(i) => match i {
+//             DiskImageGuess::Apple(guess) => {
+//                 let result = apple_disk_parser(Some(guess), config)(data);
+
+//                 match result {
+//                     Ok(r) => Ok(result.0, DiskImage::Apple(result.1)),
+//                     Err(e) => Err(e),
+//             }
+//             _ => Err("Invalid disk format"),
+//         },
+//         None => Err("Invalid disk format")
+//     }
+// }
+
+// }
 
 /// Heuristic guesses for what kind of disk this is
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -295,24 +343,19 @@ pub fn apple_disk_parser(
             let filesize = if let Format::DOS(size) = e.format {
                 size
             } else {
-                let (_i, disk) = parse_nib_disk(config)(i)?;
+                let (i, disk) = parse_nib_disk(config)(i)?;
 
-                let filename = PathBuf::from("test.dat");
-                let file_result = File::create(filename);
-                match file_result {
-                    Ok(mut file) => {
-                        for volume in disk.volumes.values() {
-                            for track in volume.tracks.values() {
-                                for sector in track.sectors.values() {
-                                    file.write_all(&sector.data).unwrap();
-                                }
-                            }
-                        }
-                    }
-                    Err(e) => error!("Error opening file: {}", e),
-                }
-
-                panic!("Done");
+                return Ok((
+                    i,
+                    AppleDisk {
+                        encoding: e.encoding,
+                        format: e.format,
+                        data: AppleDiskData::Nibble(disk),
+                    },
+                ));
+                // if config.output {
+                //     disk.save_disk_image(config, &config.output);
+                // }
             };
 
             if filesize == 143360 {
@@ -348,14 +391,19 @@ pub fn apple_disk_parser(
                 let (_i2, catalog) = parse_catalog(sectors[catalog_sector as usize])?;
 
                 debug!("Catalog: {}", catalog);
+
+                let apple_dos_disk = AppleDOSDisk {
+                    volume_table_of_contents: vtoc,
+                    _catalog: catalog,
+                    _tracks: tracks,
+                };
+
                 Ok((
                     i,
                     AppleDisk {
                         encoding: Encoding::Plain,
                         format: Format::DOS(filesize),
-                        volume_table_of_contents: vtoc,
-                        _catalog: catalog,
-                        _tracks: tracks,
+                        data: AppleDiskData::DOS(apple_dos_disk),
                     },
                 ))
             } else {
@@ -376,8 +424,8 @@ mod tests {
     use config::Config;
 
     use super::{
-        apple_disk_parser, format_from_filename, parse_volume_table_of_contents, AppleDiskGuess,
-        Encoding, Format,
+        apple_disk_parser, format_from_filename, parse_volume_table_of_contents, AppleDiskData,
+        AppleDiskGuess, Encoding, Format,
     };
 
     const VTOC_DATA: [u8; 256] = [
@@ -501,20 +549,25 @@ mod tests {
         let res = apple_disk_parser(Some(guess), &Config::default())(&data);
 
         match res {
-            Ok(disk) => {
-                let vtoc = disk.1.volume_table_of_contents;
+            Ok(disk) => match disk.1.data {
+                AppleDiskData::DOS(apple_dos_disk) => {
+                    let vtoc = apple_dos_disk.volume_table_of_contents;
 
-                assert_eq!(disk.1.encoding, Encoding::Plain);
-                assert_eq!(disk.1.format, Format::DOS(143360));
-                assert_eq!(vtoc.track_number_of_first_catalog_sector, 17);
-                assert_eq!(vtoc.sector_number_of_first_catalog_sector, 15);
-                assert_eq!(vtoc.release_number_of_dos, 3);
-                assert_eq!(vtoc.diskette_volume_number, 254);
-                assert_eq!(vtoc.number_of_tracks_per_diskette, 35);
-                assert_eq!(vtoc.number_of_sectors_per_track, 16);
-                assert_eq!(vtoc.number_of_bytes_per_sector, 256);
-                assert_eq!(vtoc.last_track_where_sectors_were_allocated, 18);
-            }
+                    assert_eq!(disk.1.encoding, Encoding::Plain);
+                    assert_eq!(disk.1.format, Format::DOS(143360));
+                    assert_eq!(vtoc.track_number_of_first_catalog_sector, 17);
+                    assert_eq!(vtoc.sector_number_of_first_catalog_sector, 15);
+                    assert_eq!(vtoc.release_number_of_dos, 3);
+                    assert_eq!(vtoc.diskette_volume_number, 254);
+                    assert_eq!(vtoc.number_of_tracks_per_diskette, 35);
+                    assert_eq!(vtoc.number_of_sectors_per_track, 16);
+                    assert_eq!(vtoc.number_of_bytes_per_sector, 256);
+                    assert_eq!(vtoc.last_track_where_sectors_were_allocated, 18);
+                }
+                _ => {
+                    panic!("Invalid format");
+                }
+            },
             Err(_e) => {
                 panic!("This should have succeeded");
             }

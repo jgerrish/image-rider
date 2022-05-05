@@ -1,5 +1,8 @@
 /// Encoding and Decoding Nibble-based disk formats
 use std::collections::BTreeMap;
+use std::fs::File;
+use std::io::Write;
+use std::path::PathBuf;
 
 use config::Config;
 use log::error;
@@ -8,6 +11,9 @@ use nom::bytes::complete::{take, take_until};
 use nom::multi::many0;
 use nom::number::complete::le_u8;
 use nom::IResult;
+
+use crate::disk_format::apple::disk::{format_from_filename, AppleDisk, AppleDiskData};
+use crate::disk_format::image::{DiskImage, DiskImageParser};
 
 // const NIBBLE_WRITE_TABLE_6_AND_2: [u8; 64] = [
 //     0x96,0x97,0x9A,0x9B,0x9D,0x9E,0x9F,0xA6,
@@ -103,21 +109,17 @@ pub fn find_and_parse_address_field(
             checksum,
         };
 
-        if let Ok(ignore) = config.get_bool("ignore-checksums") {
-            if ignore {
-                return Ok((i, address_field));
-            }
-        }
-
         if computed_checksum != checksum {
             error!(
                 "Address field computed checksum not equal to disk checksum: {} {}",
                 computed_checksum, checksum
             );
-            panic!(
-                "Address field computed checksum not equal to disk checksum: {} {}",
-                computed_checksum, checksum
-            );
+            if !config.get_bool("ignore-checksums").unwrap_or(false) {
+                panic!(
+                    "Address field computed checksum not equal to disk checksum: {} {}",
+                    computed_checksum, checksum
+                );
+            }
         }
 
         Ok((i, address_field))
@@ -177,7 +179,7 @@ pub struct Sector {
 }
 
 /// Transform a 6 and 2 data field to a 256-byte sector
-pub fn transform_data_field(data_field: &DataField) -> Sector {
+pub fn transform_data_field(config: &Config, data_field: &DataField) -> Sector {
     // The data is split up into several different sections
     // The first 0x56 bytes are the "auxiliary data buffer"
     // Starting at offset 0x56 the 6 bit bytes are stored
@@ -205,13 +207,15 @@ pub fn transform_data_field(data_field: &DataField) -> Sector {
         }
     }
 
-    // if computed_checksum != data_field.checksum {
-    //     error!(
-    //         "Invalid checksum on data: calculated: {}, disk: {}",
-    //         computed_checksum, data_field.checksum
-    //     );
-    //     panic!("Invalid checksum on data");
-    // }
+    if computed_checksum != data_field.checksum {
+        error!(
+            "Invalid checksum on data: calculated: {}, disk: {}",
+            computed_checksum, data_field.checksum
+        );
+        if !config.get_bool("ignore-checksums").unwrap_or(false) {
+            panic!("Invalid checksum on data");
+        }
+    }
 
     let reverse_values = [0x00, 0x02, 0x01, 0x03];
     for i in 0..=255 {
@@ -249,6 +253,50 @@ pub struct Volume {
 pub struct NibbleDisk {
     /// The sectors on the disk
     pub volumes: BTreeMap<u8, Volume>,
+}
+
+impl DiskImageParser for NibbleDisk {
+    fn parse_disk_image<'a>(
+        config: &Config,
+        filename: &str,
+        data: &'a [u8],
+    ) -> IResult<&'a [u8], DiskImage<'a>> {
+        let guess_option = format_from_filename(filename);
+
+        match guess_option {
+            Some(guess) => {
+                let (i, disk) = parse_nib_disk(config)(data)?;
+                Ok((
+                    i,
+                    DiskImage::Apple(AppleDisk {
+                        encoding: guess.encoding,
+                        format: guess.format,
+                        data: AppleDiskData::Nibble(disk),
+                    }),
+                ))
+            }
+            None => {
+                panic!("Invalid format");
+            }
+        }
+    }
+
+    fn save_disk_image(&self, _config: &Config, filename: &str) {
+        let filename = PathBuf::from(filename);
+        let file_result = File::create(filename);
+        match file_result {
+            Ok(mut file) => {
+                for volume in self.volumes.values() {
+                    for track in volume.tracks.values() {
+                        for sector in track.sectors.values() {
+                            file.write_all(&sector.data).unwrap();
+                        }
+                    }
+                }
+            }
+            Err(e) => error!("Error opening file: {}", e),
+        }
+    }
 }
 
 /// A field, containing both the data field and address field
@@ -289,7 +337,7 @@ pub fn parse_nib_disk(config: &Config) -> impl Fn(&[u8]) -> IResult<&[u8], Nibbl
             let volume = disk.volumes.entry(field.address_field.volume);
             let track = volume.or_default().tracks.entry(field.address_field.track);
             let sector = track.or_default().sectors.entry(field.address_field.sector);
-            sector.or_insert_with(|| transform_data_field(&field.data_field));
+            sector.or_insert_with(|| transform_data_field(config, &field.data_field));
         }
 
         Ok((i, disk))

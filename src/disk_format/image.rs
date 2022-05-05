@@ -10,15 +10,15 @@ use std::fmt::{Display, Formatter, Result};
 
 use crate::disk_format::apple::{
     self,
-    disk::{apple_disk_parser, AppleDisk, AppleDiskGuess},
+    disk::{apple_disk_parser, AppleDisk, AppleDiskData, AppleDiskGuess},
 };
 use crate::disk_format::d64::{d64_disk_parser, D64Disk};
 use crate::disk_format::stx::disk::{stx_disk_parser, STXDisk};
 
 /// The different kinds of disk images
-pub enum DiskImage<'a, 'b> {
+pub enum DiskImage<'a> {
     /// A Commodore 64 D64 Disk Image
-    D64(D64Disk<'b>),
+    D64(D64Disk<'a>),
     /// An Atari ST STX Disk Image
     STX(STXDisk<'a>),
     /// An Apple ][ Disk Image
@@ -26,7 +26,7 @@ pub enum DiskImage<'a, 'b> {
 }
 
 /// Display a DiskImage
-impl Display for DiskImage<'_, '_> {
+impl Display for DiskImage<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         match self {
             DiskImage::D64(d) => write!(f, "D64 Disk: {}", d),
@@ -34,6 +34,29 @@ impl Display for DiskImage<'_, '_> {
             DiskImage::Apple(d) => write!(f, "Apple Disk: {}", d),
         }
     }
+}
+
+/// A trait for disk or ROM image parsers
+/// New image parsers should implement this trait
+pub trait DiskImageParser {
+    /// This function parses an entire disk, returning a DiskImage
+    fn parse_disk_image<'a>(
+        config: &Config,
+        filename: &str,
+        data: &'a [u8],
+    ) -> IResult<&'a [u8], DiskImage<'a>>;
+
+    /// Return the primary data contents of a disk image
+    /// The meaning of the data contents will differ between image formats, but
+    /// it's usually all the volume, track, and sector data, or the enclosed file format
+    /// if the outer image is a wrapper
+    // fn disk_image_data(&self, config: &Config) -> Vec<&[u8]>;
+
+    /// Save the primary data contents of a disk image to disk
+    /// The meaning of the data contents will differ between image formats, but
+    /// it's usually all the volume, track, and sector data, or the enclosed file format
+    /// if the outer image is a wrapper
+    fn save_disk_image(&self, config: &Config, filename: &str);
 }
 
 /// The result of heuristics to guess a disk image
@@ -61,12 +84,41 @@ impl Display for DiskImageGuess {
     }
 }
 
+impl DiskImageParser for DiskImage<'_> {
+    fn parse_disk_image<'a>(
+        config: &Config,
+        filename: &str,
+        data: &'a [u8],
+    ) -> IResult<&'a [u8], DiskImage<'a>> {
+        file_parser(filename, data, config)
+    }
+
+    fn save_disk_image(&self, config: &Config, filename: &str) {
+        match self {
+            DiskImage::STX(image_data) => {
+                image_data.save_disk_image(config, filename);
+            }
+            DiskImage::Apple(apple_image) => match &apple_image.data {
+                AppleDiskData::Nibble(nibble_image) => {
+                    nibble_image.save_disk_image(config, filename);
+                }
+                _ => {
+                    info!("Unsupported image for file saving");
+                }
+            },
+            _ => {
+                info!("Unsupported image for file saving");
+            }
+        };
+    }
+}
+
 /// Parses a file given a filename, returning a DiskImage
 pub fn file_parser<'a>(
     filename: &str,
     data: &'a [u8],
     config: &Config,
-) -> IResult<&'a [u8], DiskImage<'a, 'a>> {
+) -> IResult<&'a [u8], DiskImage<'a>> {
     let guess_image_type = format_from_filename(filename);
 
     info!(
@@ -112,7 +164,7 @@ pub fn format_from_filename(filename: &str) -> Option<DiskImageGuess> {
 /// Function to collect the actual disk image data from a disk image and return
 /// it as an Option<Vec<u8>>
 /// It should have more tests around the different disk types
-pub fn disk_image_data(disk_image: DiskImage) -> Option<Vec<u8>> {
+pub fn disk_image_data(disk_image: &DiskImage) -> Option<Vec<u8>> {
     match disk_image {
         DiskImage::STX(image_data) => {
             // It may be more efficient to return sector-size &[u8] iterators
@@ -126,16 +178,6 @@ pub fn disk_image_data(disk_image: DiskImage) -> Option<Vec<u8>> {
                     .copied()
                     .collect(),
             )
-            // For readability comparison:
-            // for track in image_data.stx_tracks {
-            //     if let Some(sector_data) = track.sector_data {
-            //         for sector in sector_data {
-            //             for byte in sector {
-            //                 disk_image_data.push(*byte);
-            //             }
-            //         }
-            //     }
-            // }
         }
         _ => {
             info!("Unsupported image for file saving");

@@ -47,18 +47,17 @@ $ cargo test
 
 You can create your own ROM or disk image parser.
 
-Building a parser loading system that uses traits and dynamic loading
-loading is on the roadmap.  In the meantime, here are the steps to add
-a new parser called foo:
+Building a parser loading system that uses dynamic loading roadmap.
+In the meantime, here are the steps to add a new parser called foo:
 
   * Make a new directory (module) in src/disk_format/foo
   * Include that module in src/disk_format/mod.rs with a "pub mod foo;" line
   * Add a mod.rs file in the new directory and include any
     module-level code in there.  The entire plugin can live in there
     if you want.
-  * The plugin should have an top-level structure called FooDisk or similar.
+  * The plugin should have a top-level structure called FooDisk or similar.
   * The plugin should have an implementation of Display for FooDisk
-  * The plugin should have a top-level nom parser called foo_disk_parser
+  * The plugin should have an implmentation of DiskImageParser for FooDisk
   * Import FooDisk and add the FooDisk structure to DiskImage in
     src/disk_format/image.rs and supporting functions:
 	  * pub enum DiskImage
@@ -66,6 +65,3 @@ a new parser called foo:
   * Add the parser to the disk_image_parser function in
     src/disk_format/image.rs file as another alt:
 	map(foo_disk_parser, DiskImage::Foo)
-	
-	
-

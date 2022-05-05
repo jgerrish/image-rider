@@ -1,4 +1,10 @@
+use config::Config;
+
 use log::{debug, error, info};
+
+use std::fs::File;
+use std::io::Write;
+use std::path::PathBuf;
 
 use nom::bytes::complete::{tag, take};
 use nom::number::complete::{le_u16, le_u8};
@@ -6,6 +12,7 @@ use nom::IResult;
 
 use std::fmt::{Display, Formatter, Result};
 
+use crate::disk_format::image::{DiskImage, DiskImageParser};
 use crate::disk_format::stx::track::{stx_tracks_parser, STXTrack};
 use crate::disk_format::stx::SanityCheck;
 
@@ -23,6 +30,39 @@ pub struct STXDisk<'a> {
 impl Display for STXDisk<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         write!(f, "header: {}", self.stx_disk_header)
+    }
+}
+
+impl DiskImageParser for STXDisk<'_> {
+    fn parse_disk_image<'a>(
+        _config: &Config,
+        _filename: &str,
+        data: &'a [u8],
+    ) -> IResult<&'a [u8], DiskImage<'a>> {
+        let (i, parse_result) = stx_disk_parser(data)?;
+
+        Ok((i, DiskImage::STX(parse_result)))
+    }
+
+    fn save_disk_image(&self, _config: &Config, filename: &str) {
+        // It may be more efficient to return sector-size &[u8] iterators
+        let disk_image_data: Vec<u8> = self
+            .stx_tracks
+            .iter()
+            .filter(|s| s.sector_data.is_some())
+            .flat_map(|s| (*s).sector_data.as_ref().unwrap().iter())
+            .flat_map(|bytes| (*bytes).iter())
+            .copied()
+            .collect();
+        info!("Found image data, writing data");
+        let filename = PathBuf::from(filename);
+        let file_result = File::create(filename);
+        match file_result {
+            Ok(mut file) => {
+                let _res = file.write_all(&disk_image_data);
+            }
+            Err(e) => error!("Error opening file: {}", e),
+        }
     }
 }
 

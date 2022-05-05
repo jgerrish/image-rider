@@ -2,8 +2,8 @@
 /// Usage: cargo run --example parser --input FILENAME
 ///
 use std::fs::File;
-use std::io::{Read, Write};
-use std::path::{Path, PathBuf};
+use std::io::Read;
+use std::path::Path;
 use std::process::exit;
 
 use clap::Parser;
@@ -11,7 +11,7 @@ use config::Config;
 use env_logger;
 use log::{error, info};
 
-use image_rider::disk_format::image::{disk_image_data, file_parser};
+use image_rider::disk_format::image::{file_parser, DiskImageParser};
 
 /// Command line arguments to parse an image file
 #[derive(Parser, Debug)]
@@ -108,19 +108,8 @@ fn main() {
     // Find the type of disk image and write the track or sector data if its available
     if let Some(output_filename) = &args.output {
         info!("Got output filename, testing for image data");
-        let disk_image_data = disk_image_data(image);
 
-        if let Some(image_data) = disk_image_data {
-            info!("Found image data, writing data");
-            let filename = PathBuf::from(output_filename);
-            let file_result = File::create(filename);
-            match file_result {
-                Ok(mut file) => {
-                    let _res = file.write_all(&image_data);
-                }
-                Err(e) => error!("Error opening file: {}", e),
-            }
-        }
+        image.save_disk_image(&settings, &output_filename);
     }
 
     exit(0);

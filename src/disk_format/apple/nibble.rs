@@ -12,8 +12,7 @@ use nom::multi::many0;
 use nom::number::complete::le_u8;
 use nom::IResult;
 
-use crate::disk_format::apple::disk::{format_from_filename, AppleDisk, AppleDiskData};
-use crate::disk_format::image::{DiskImage, DiskImageParser};
+use crate::disk_format::image::DiskImageSaver;
 
 // const NIBBLE_WRITE_TABLE_6_AND_2: [u8; 64] = [
 //     0x96,0x97,0x9A,0x9B,0x9D,0x9E,0x9F,0xA6,
@@ -255,32 +254,35 @@ pub struct NibbleDisk {
     pub volumes: BTreeMap<u8, Volume>,
 }
 
-impl DiskImageParser for NibbleDisk {
-    fn parse_disk_image<'a>(
-        config: &Config,
-        filename: &str,
-        data: &'a [u8],
-    ) -> IResult<&'a [u8], DiskImage<'a>> {
-        let guess_option = format_from_filename(filename);
+// impl DiskImageParser for NibbleDisk {
+//     fn parse_disk_image<'a>(
+//         &self,
+//         config: &Config,
+//         filename: &str,
+//         // data: &'a [u8],
+//     ) -> IResult<&'a [u8], DiskImage<'a>> {
+//         let guess_option = format_from_filename_and_data(filename, data);
 
-        match guess_option {
-            Some(guess) => {
-                let (i, disk) = parse_nib_disk(config)(data)?;
-                Ok((
-                    i,
-                    DiskImage::Apple(AppleDisk {
-                        encoding: guess.encoding,
-                        format: guess.format,
-                        data: AppleDiskData::Nibble(disk),
-                    }),
-                ))
-            }
-            None => {
-                panic!("Invalid format");
-            }
-        }
-    }
+//         match guess_option {
+//             Some(guess) => {
+//                 let (i, disk) = parse_nib_disk(config)(data)?;
+//                 Ok((
+//                     i,
+//                     DiskImage::Apple(AppleDisk {
+//                         encoding: guess.encoding,
+//                         format: guess.format,
+//                         data: AppleDiskData::Nibble(disk),
+//                     }),
+//                 ))
+//             }
+//             None => {
+//                 panic!("Invalid format");
+//             }
+//         }
+//     }
+// }
 
+impl DiskImageSaver for NibbleDisk {
     fn save_disk_image(&self, _config: &Config, filename: &str) {
         let filename = PathBuf::from(filename);
         let file_result = File::create(filename);

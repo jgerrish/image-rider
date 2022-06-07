@@ -1,5 +1,5 @@
 /// Disk-level functions and data structures for Apple disks.
-use log::{debug, error};
+use log::{debug, error, warn};
 
 use std::fs;
 use std::path::Path;
@@ -16,6 +16,7 @@ use std::fmt::{Display, Formatter, Result};
 
 use crate::disk_format::apple::catalog::{parse_catalog, Catalog};
 use crate::disk_format::apple::nibble::parse_nib_disk;
+use crate::disk_format::image::{DiskImage, DiskImageParser};
 use crate::disk_format::sanity_check::SanityCheck;
 
 use super::nibble::NibbleDisk;
@@ -244,54 +245,41 @@ impl Display for AppleDisk<'_> {
     }
 }
 
-// impl DiskImageParser for AppleDisk<'_> {
-//     fn parse_disk_image<'a>(config: &Config, filename: &str, data: &[u8])
-//                         -> IResult<&'a [u8], DiskImage<'a>> {
-//         let guess = format_from_filename(filename);
-
-//         let (i, disk) = apple_disk_parser(guess, config)(data)?;
-//         Ok((i, DiskImage::Apple(disk)))
-//     }
-//     info!(
-//         "config ignore-checksums: {:?}",
-//         config.get_bool("ignore-checksums")
-//     );
-
-//     match guess_image_type {
-//         Some(i) => match i {
-//             DiskImageGuess::Apple(guess) => {
-//                 let result = apple_disk_parser(Some(guess), config)(data);
-
-//                 match result {
-//                     Ok(r) => Ok(result.0, DiskImage::Apple(result.1)),
-//                     Err(e) => Err(e),
-//             }
-//             _ => Err("Invalid disk format"),
-//         },
-//         None => Err("Invalid disk format")
-//     }
-// }
-
-// }
-
 /// Heuristic guesses for what kind of disk this is
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct AppleDiskGuess {
+pub struct AppleDiskGuess<'a> {
     /// The disk encoding
     pub encoding: Encoding,
     /// The disk format
     pub format: Format,
+    /// The raw image data
+    pub data: &'a [u8],
+}
+
+impl AppleDiskGuess<'_> {
+    /// Return a new AppleDiskGuess with some default parameters that can't
+    /// be easily guessed from basic heuristics like filename
+    pub fn new(encoding: Encoding, format: Format, data: &[u8]) -> AppleDiskGuess {
+        AppleDiskGuess {
+            encoding,
+            format,
+            data,
+        }
+    }
 }
 
 /// Format an AppleDiskGuess for display
-impl Display for AppleDiskGuess {
+impl Display for AppleDiskGuess<'_> {
     fn fmt(&self, f: &mut Formatter) -> Result {
         write!(f, "encoding: {}, format: {}", self.encoding, self.format)
     }
 }
 
 /// Try to guess a file format from a filename
-pub fn format_from_filename(filename: &str) -> Option<AppleDiskGuess> {
+pub fn format_from_filename_and_data<'a>(
+    filename: &str,
+    data: &'a [u8],
+) -> Option<AppleDiskGuess<'a>> {
     let filename_extension: Vec<_> = filename.split('.').collect();
     let path = Path::new(&filename);
 
@@ -307,14 +295,16 @@ pub fn format_from_filename(filename: &str) -> Option<AppleDiskGuess> {
         .to_lowercase()
         .as_str()
     {
-        "dsk" => Some(AppleDiskGuess {
-            encoding: Encoding::Plain,
-            format: Format::DOS(filesize),
-        }),
-        "nib" => Some(AppleDiskGuess {
-            encoding: Encoding::Nibble,
-            format: Format::Unknown(filesize),
-        }),
+        "dsk" => Some(AppleDiskGuess::new(
+            Encoding::Plain,
+            Format::DOS(filesize),
+            data,
+        )),
+        "nib" => Some(AppleDiskGuess::new(
+            Encoding::Nibble,
+            Format::Unknown(filesize),
+            data,
+        )),
         &_ => None,
     }
 }
@@ -328,89 +318,116 @@ pub fn apple_tracks_parser(
 }
 
 /// Parse the tracks on a 140K Apple ][ Disk
-pub fn apple_140_k_dos_parser(i: &[u8]) -> IResult<&[u8], Vec<&[u8]>> {
-    apple_tracks_parser(4096, 35)(i)
-    // apple_tracks_parser(3584, 40)(i)
+pub fn apple_140_k_dos_parser(
+    guess: AppleDiskGuess,
+    tracks_per_disk: usize,
+) -> IResult<&[u8], Vec<&[u8]>> {
+    if tracks_per_disk == 35 {
+        apple_tracks_parser(4096, 35)(guess.data)
+    } else if tracks_per_disk == 40 {
+        apple_tracks_parser(3584, 40)(guess.data)
+    } else {
+        Err(Err::Error(nom::error::Error::new(
+            guess.data,
+            ErrorKind::Fail,
+        )))
+    }
 }
 
 /// Parse an Apple ][ Disk
-pub fn apple_disk_parser(
-    guess: Option<AppleDiskGuess>,
-    config: &Config,
-) -> impl Fn(&[u8]) -> IResult<&[u8], AppleDisk> + '_ {
-    move |i| {
-        if let Some(e) = &guess {
-            let filesize = if let Format::DOS(size) = e.format {
-                size
-            } else {
-                let (i, disk) = parse_nib_disk(config)(i)?;
+pub fn apple_disk_parser<'a, 'b>(
+    guess: AppleDiskGuess<'a>,
+    config: &'b Config,
+) -> IResult<&'a [u8], AppleDisk<'a>> {
+    let i = guess.data;
+    let filesize = if let Format::DOS(size) = guess.format {
+        size
+    } else {
+        let (i, disk) = parse_nib_disk(config)(i)?;
 
-                return Ok((
-                    i,
-                    AppleDisk {
-                        encoding: e.encoding,
-                        format: e.format,
-                        data: AppleDiskData::Nibble(disk),
-                    },
-                ));
-                // if config.output {
-                //     disk.save_disk_image(config, &config.output);
-                // }
-            };
+        return Ok((
+            i,
+            AppleDisk {
+                encoding: guess.encoding,
+                format: guess.format,
+                data: AppleDiskData::Nibble(disk),
+            },
+        ));
+        // if config.output {
+        //     disk.save_disk_image(config, &config.output);
+        // }
+    };
 
-            if filesize == 143360 {
-                // 140K Apple DOS image
-                // Guess 35 tracks per disk
-                let (_i, tracks) = apple_140_k_dos_parser(i)?;
+    if filesize == 143360 {
+        // guess the tracks per disk
+        let tracks_per_disk = 35;
+        // guess the starting sector for the catalog
+        // This sometimes starts at other locations
+        let catalog_sector_start = 17;
 
-                debug!("number of tracks: {}", tracks.len());
-                // Verify that this is the Volume Table of Contents
-                // The catalog should start on sector 17
-                // Sometimes this is zero-based indexing, sometimes it's one-based
+        // 140K Apple DOS image
+        // Use the apple_140_k_dos_parser
+        let (_i, tracks) = apple_140_k_dos_parser(guess, tracks_per_disk)?;
 
-                // One heuristic is to check if byte 1 is equal to 17,
-                // the standard track number of the first catalog
-                // sector.
-                // byte 2 is usually equal to 15, the sector number of
-                // the first catalog sector
-                // Another heuristic is to check for a valid DOS release number:
-                // DOS versions to check for: 1, 2, 3
-                let (i, vtoc) = parse_volume_table_of_contents(tracks[17])?;
+        debug!("number of tracks: {}", tracks.len());
+        // Verify that this is the Volume Table of Contents
+        // The catalog should start on sector 17
+        // Sometimes this is zero-based indexing, sometimes it's one-based
 
-                debug!("VTOC: {}", vtoc);
+        // One heuristic is to check if byte 1 is equal to 17,
+        // the standard track number of the first catalog
+        // sector.
+        // byte 2 is usually equal to 15, the sector number of
+        // the first catalog sector
+        // Another heuristic is to check for a valid DOS release number:
+        // DOS versions to check for: 1, 2, 3
+        let (i, vtoc) = parse_volume_table_of_contents(tracks[catalog_sector_start])?;
 
-                if !vtoc.check() {
-                    error!("Invalid data");
-                    return Err(Err::Error(nom::error::Error::new(i, ErrorKind::Fail)));
-                    // return Err(Err::Error(nom::error_position!(i, ErrorKind::Fail)));
-                }
+        debug!("VTOC: {}", vtoc);
 
-                // parse out the sectors for track 17
-                let (_i, sectors) = count(take(256_usize), 16)(tracks[17])?;
-                let catalog_sector = tracks[17][2];
-                let (_i2, catalog) = parse_catalog(sectors[catalog_sector as usize])?;
+        if !vtoc.check() {
+            error!("Invalid data");
+            return Err(Err::Error(nom::error::Error::new(i, ErrorKind::Fail)));
+        }
 
-                debug!("Catalog: {}", catalog);
+        // parse out the sectors for track 17
+        let (_i, sectors) = count(take(256_usize), 16)(tracks[catalog_sector_start])?;
+        let catalog_sector = tracks[catalog_sector_start][2];
+        let (_i2, catalog) = parse_catalog(sectors[catalog_sector as usize])?;
 
-                let apple_dos_disk = AppleDOSDisk {
-                    volume_table_of_contents: vtoc,
-                    _catalog: catalog,
-                    _tracks: tracks,
-                };
+        debug!("Catalog: {}", catalog);
 
-                Ok((
-                    i,
-                    AppleDisk {
-                        encoding: Encoding::Plain,
-                        format: Format::DOS(filesize),
-                        data: AppleDiskData::DOS(apple_dos_disk),
-                    },
-                ))
-            } else {
-                Err(Err::Error(nom::error_position!(i, ErrorKind::Fail)))
-            }
-        } else {
-            Err(Err::Error(nom::error_position!(i, ErrorKind::Fail)))
+        let apple_dos_disk = AppleDOSDisk {
+            volume_table_of_contents: vtoc,
+            _catalog: catalog,
+            _tracks: tracks,
+        };
+
+        Ok((
+            i,
+            AppleDisk {
+                encoding: Encoding::Plain,
+                format: Format::DOS(filesize),
+                data: AppleDiskData::DOS(apple_dos_disk),
+            },
+        ))
+    } else {
+        // TODO: Refactor this, it's not really a nom error
+        Err(Err::Error(nom::error::make_error(i, ErrorKind::Fail)))
+    }
+}
+
+/// DiskImageParser implementation for AppleDiskGuess
+impl<'a, 'b> DiskImageParser<'a, 'b> for AppleDiskGuess<'a> {
+    fn parse_disk_image(
+        &'a self,
+        config: &'b Config,
+        _filename: &str,
+    ) -> std::result::Result<DiskImage<'a>, String> {
+        let result = apple_disk_parser(*self, config);
+        match result {
+            Ok(apple_disk) => Ok(DiskImage::Apple(apple_disk.1)),
+            Err(e) => Err(nom::Err::Error(e).to_string()),
         }
     }
 }
@@ -424,8 +441,8 @@ mod tests {
     use config::Config;
 
     use super::{
-        apple_disk_parser, format_from_filename, parse_volume_table_of_contents, AppleDiskData,
-        AppleDiskGuess, Encoding, Format,
+        apple_disk_parser, format_from_filename_and_data, parse_volume_table_of_contents,
+        AppleDiskData, AppleDiskGuess, Encoding, Format,
     };
 
     const VTOC_DATA: [u8; 256] = [
@@ -473,16 +490,13 @@ mod tests {
             panic!("Couldn't flush file stream: {}", e);
         });
 
-        let guess = format_from_filename(filename).unwrap_or_else(|| {
+        let guess = format_from_filename_and_data(filename, &data).unwrap_or_else(|| {
             panic!("Invalid filename guess");
         });
 
         assert_eq!(
             guess,
-            AppleDiskGuess {
-                encoding: Encoding::Plain,
-                format: Format::DOS(143360),
-            }
+            AppleDiskGuess::new(Encoding::Plain, Format::DOS(143360), &data)
         );
 
         std::fs::remove_file(filename).unwrap_or_else(|e| {
@@ -541,12 +555,10 @@ mod tests {
         //     panic!("Invalid filename guess");
         // });
 
-        let guess = AppleDiskGuess {
-            encoding: Encoding::Plain,
-            format: Format::DOS(143360),
-        };
+        let guess = AppleDiskGuess::new(Encoding::Plain, Format::DOS(143360), &data);
 
-        let res = apple_disk_parser(Some(guess), &Config::default())(&data);
+        let config = Config::default();
+        let res = apple_disk_parser(guess, &config);
 
         match res {
             Ok(disk) => match disk.1.data {
@@ -593,22 +605,10 @@ mod tests {
             panic!("Error writing test file: {}", e);
         });
 
-        // let guess = format_from_filename(filename).unwrap_or_else(|| {
-        //     panic!("Invalid filename guess");
-        // });
-        // assert_eq!(
-        //     guess,
-        //     AppleDiskGuess {
-        //         encoding: Encoding::Plain,
-        //         format: Format::DOS(143360),
-        //     }
-        // );
-        let guess = AppleDiskGuess {
-            encoding: Encoding::Plain,
-            format: Format::DOS(143360),
-        };
+        let guess = AppleDiskGuess::new(Encoding::Plain, Format::DOS(143360), &data);
 
-        let res = apple_disk_parser(Some(guess), &Config::default())(&data);
+        let config = Config::default();
+        let res = apple_disk_parser(guess, &config);
 
         match res {
             Ok(_disk) => {

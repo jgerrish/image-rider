@@ -1,3 +1,4 @@
+use config::Config;
 use log::debug;
 use nom::bytes::complete::{tag, take};
 use nom::combinator::{map, verify};
@@ -7,6 +8,7 @@ use nom::IResult;
 /// Parse a Commodore D64 disk image
 use std::fmt::{Display, Formatter, Result};
 
+use crate::disk_format::image::DiskImageSaver;
 use crate::disk_format::sanity_check::SanityCheck;
 
 /// A Commodore D64 disk
@@ -27,6 +29,13 @@ impl Display for D64Disk<'_> {
 pub enum DOSType {
     /// Original CBM DOS
     CBM,
+}
+
+/// Heuristic guesses for what kind of disk this is
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct D64DiskGuess<'a> {
+    /// The raw image data
+    pub data: &'a [u8],
 }
 
 /// The Block Availability Map (BAM) lives at track 18, which is at offset 0x16500
@@ -169,4 +178,26 @@ pub fn d64_disk_parser(i: &[u8]) -> IResult<&[u8], D64Disk> {
     let (i, bam) = d64_block_availability_map_parser(i)?;
 
     Ok((i, D64Disk { bam }))
+}
+
+// impl DiskImageParser for D64Disk<'_> {
+//     fn parse_disk_image<'a>(
+//         &self,
+//         _config: &Config,
+//         _filename: &str,
+//         data: &'a [u8],
+//     ) -> IResult<&'a [u8], DiskImage<'a>> {
+//         let (i, parse_result) = d64_disk_parser(data)?;
+
+//         Ok((i, DiskImage::D64(parse_result)))
+//     }
+// }
+
+impl DiskImageSaver for D64Disk<'_> {
+    /// This saves the underlying image on this disk.
+    /// This can be a FAT disk image, an ST disk, or a custom disk image
+    /// that may or may not be copy-protected.
+    fn save_disk_image(&self, _config: &Config, _filename: &str) {
+        panic!("Saving D64 disk images not implemented\n");
+    }
 }

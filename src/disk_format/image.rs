@@ -12,8 +12,8 @@ use crate::disk_format::apple::{
     self,
     disk::{apple_disk_parser, AppleDisk, AppleDiskData, AppleDiskGuess},
 };
-use crate::disk_format::d64::{d64_disk_parser, D64Disk};
-use crate::disk_format::stx::disk::{stx_disk_parser, STXDisk};
+use crate::disk_format::commodore::d64::{d64_disk_parser, D64Disk, D64DiskGuess};
+use crate::disk_format::stx::disk::{stx_disk_parser, STXDisk, STXDiskGuess};
 
 /// The different kinds of disk images
 pub enum DiskImage<'a> {
@@ -29,23 +29,111 @@ pub enum DiskImage<'a> {
 impl Display for DiskImage<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         match self {
-            DiskImage::D64(d) => write!(f, "D64 Disk: {}", d),
-            DiskImage::STX(d) => write!(f, "STX Disk: {}", d),
+            DiskImage::D64(_) => write!(f, "D64 Disk"),
+            DiskImage::STX(_) => write!(f, "STX Disk"),
             DiskImage::Apple(d) => write!(f, "Apple Disk: {}", d),
         }
     }
 }
 
 /// A trait for disk or ROM image parsers
-/// New image parsers should implement this trait
-pub trait DiskImageParser {
+/// New image guessers should implement this trait
+/// It's also implemented for &[u8]
+///
+/// The disk parsing and the disk image access (data, saving, etc.)
+/// functions have been moved into separate traits.  This supports the
+/// new data flow in the library.
+/// It's assumed that image type is guessed from raw image data and a
+/// DiskImageGuess structure is created.
+/// From this structure, an image can be parsed.
+///
+/// It allows easy guiding of the parsing from the command line,
+/// just specify the file type on the command line, along with guesses on
+/// things like directory table locations and an DiskImageGuess can be generated.
+///
+/// The DiskImageParser trait and DiskImageSaver trait are the primary
+/// API access points to the image-rider crate.  Application
+/// developers should use these two traits to load and store data in
+/// their application.
+///
+/// The individual DiskImage structures provide additional fields for
+/// users familiar with a specific image type.
+pub trait DiskImageParser<'a, 'b> {
     /// This function parses an entire disk, returning a DiskImage
-    fn parse_disk_image<'a>(
-        config: &Config,
+    ///
+    /// # Arguments
+    ///
+    /// - `config` - A Config object that contains information to guide parsing.
+    /// - `filename` - The name of the file to parse.
+    ///
+    /// # Returns
+    ///
+    /// A Result containing the DiskImage or an error message.
+    ///
+    /// # Examples
+    /// ```no_run
+    /// // Start of setup code
+    /// use std::path::Path;
+    /// use std::io::Read;
+    /// use std::fs::{File, OpenOptions};
+    /// use config::Config;
+    /// use image_rider::disk_format::image::DiskImageParser;
+    /// let filename = "parse_disk_image-tmpfile-1234.img";
+    /// let path = Path::new(&filename);
+    /// let mut file = OpenOptions::new()
+    ///     .create(true)
+    ///     .write(true)
+    ///     .open(path)
+    ///     .unwrap_or_else(|e| {
+    ///         panic!("Couldn't open file: {}", e);
+    ///     });
+    /// let data: Vec<u8> = Vec::new();
+    /// let settings = Config::builder().build().unwrap();
+    /// // End of the setup code
+    ///
+    /// // The main method call
+    /// let result = data.parse_disk_image(&settings, &filename);
+    /// if let Ok(disk_image) = result {
+    ///     println!("Successful parse");
+    /// }
+    ///
+    /// // Teardown code
+    /// std::fs::remove_file(filename).unwrap_or_else(|e| {
+    ///         panic!("Error removing test file: {}", e);
+    /// });
+    ///
+    /// ```
+    fn parse_disk_image(
+        &'a self,
+        config: &'b Config,
         filename: &str,
-        data: &'a [u8],
-    ) -> IResult<&'a [u8], DiskImage<'a>>;
+    ) -> std::result::Result<DiskImage<'a>, String>;
+}
 
+/// Test trait for getting parsing and ownership transferral working
+/// with DiskImageGuess
+pub trait TestParser<'a, 'b> {
+    /// Parse an entire disk, returning a DiskImage.
+    ///
+    /// # Arguments
+    ///
+    /// - `config` - A Config object that contains information to guide parsing.
+    /// - `filename` - The name of the file to parse.
+    ///
+    /// # Returns
+    ///
+    /// A Result containing the DiskImage or an error message.
+    ///
+    fn parse_disk_image(
+        self,
+        config: &'b Config,
+        filename: &str,
+    ) -> std::result::Result<DiskImage<'a>, String>;
+}
+
+/// This trait provides convenient functions for getting and saving
+/// data for the parsed disk image data in a DiskImage
+pub trait DiskImageSaver {
     /// Return the primary data contents of a disk image
     /// The meaning of the data contents will differ between image formats, but
     /// it's usually all the volume, track, and sector data, or the enclosed file format
@@ -55,7 +143,53 @@ pub trait DiskImageParser {
     /// Save the primary data contents of a disk image to disk
     /// The meaning of the data contents will differ between image formats, but
     /// it's usually all the volume, track, and sector data, or the enclosed file format
-    /// if the outer image is a wrapper
+    /// if the outer image is a wrapper.
+    /// This function parses an entire disk, returning a DiskImage.
+    ///
+    /// # Arguments
+    ///
+    /// - `config` - A Config object that contains information to guide parsing.
+    /// - `filename` - The name of the file to parse.
+    ///
+    /// # Examples
+    /// ```no_run
+    /// // Start of setup code
+    /// use std::path::Path;
+    /// use std::io::Read;
+    /// use std::fs::{File, OpenOptions};
+    /// use config::Config;
+    /// use image_rider::disk_format::image::{DiskImageParser, DiskImageSaver};
+    /// let filename = "parse_disk_image-tmpfile-1234.img";
+    /// let path = Path::new(&filename);
+    /// let mut file = OpenOptions::new()
+    ///     .create(true)
+    ///     .write(true)
+    ///     .open(path)
+    ///     .unwrap_or_else(|e| {
+    ///         panic!("Couldn't open file: {}", e);
+    ///     });
+    /// let data: Vec<u8> = Vec::new();
+    /// let settings = Config::builder().build().unwrap();
+    /// // End of the setup code
+    ///
+    /// // The main method call
+    /// let result = data.parse_disk_image(&settings, &filename);
+    /// let tmp_out_filename = "parse_disk_image-tmpfile-out-1234.img";
+    /// if let Ok(disk_image) = result {
+    ///     println!("Successful parse");
+    ///     // Save the data
+    ///     disk_image.save_disk_image(&settings, tmp_out_filename);
+    /// }
+    ///
+    /// // Teardown code
+    /// std::fs::remove_file(tmp_out_filename).unwrap_or_else(|e| {
+    ///         println!("Error removing test file: {}", e);
+    /// });
+    /// std::fs::remove_file(filename).unwrap_or_else(|e| {
+    ///         println!("Error removing test file: {}", e);
+    /// });
+    ///
+    /// ```
     fn save_disk_image(&self, config: &Config, filename: &str);
 }
 
@@ -64,35 +198,52 @@ pub trait DiskImageParser {
 /// This returns a guess that can be used to guide the parsing process
 /// Later versions can include a parser generator trait that returns the recommended
 /// parser
-pub enum DiskImageGuess {
+/// The DiskImageGuess structures should have a field that contains
+/// the raw image data When A DiskImageGuess is created, it becomes
+/// the new owner of the image data
+pub enum DiskImageGuess<'a> {
     /// A Commodore D64 Disk Image
-    D64,
+    D64(D64DiskGuess<'a>),
     /// An Atari ST STX Disk Image
-    STX,
+    STX(STXDiskGuess<'a>),
     /// An Apple ][ Disk Image
-    Apple(AppleDiskGuess),
+    Apple(AppleDiskGuess<'a>),
 }
 
 /// Display a DiskImageGuess
-impl Display for DiskImageGuess {
+impl<'a> Display for DiskImageGuess<'a> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         match self {
-            DiskImageGuess::D64 => write!(f, "D64 Disk"),
-            DiskImageGuess::STX => write!(f, "STX Disk"),
+            DiskImageGuess::D64(_) => write!(f, "D64 Disk"),
+            DiskImageGuess::STX(_) => write!(f, "STX Disk"),
             DiskImageGuess::Apple(d) => write!(f, "Apple Disk: {}", d),
         }
     }
 }
 
-impl DiskImageParser for DiskImage<'_> {
-    fn parse_disk_image<'a>(
-        config: &Config,
-        filename: &str,
-        data: &'a [u8],
-    ) -> IResult<&'a [u8], DiskImage<'a>> {
-        file_parser(filename, data, config)
+/// Implement a parser for a DiskImageGuess
+/// The intention is that the DiskImage owns the raw data afterwards
+impl<'a, 'b> TestParser<'a, 'b> for DiskImageGuess<'a> {
+    fn parse_disk_image(
+        self,
+        config: &'b Config,
+        _filename: &str,
+    ) -> std::result::Result<DiskImage<'a>, String> {
+        match self {
+            DiskImageGuess::D64(_) => Err(String::from("Error parsing image from guess")),
+            DiskImageGuess::STX(_) => Err(String::from("Error parsing image from guess")),
+            DiskImageGuess::Apple(guess) => {
+                let parser_result = apple_disk_parser(guess, config);
+                match parser_result {
+                    Ok(res) => Ok(DiskImage::Apple(res.1)),
+                    Err(e) => Err(nom::Err::Error(e).to_string()),
+                }
+            }
+        }
     }
+}
 
+impl DiskImageSaver for DiskImage<'_> {
     fn save_disk_image(&self, config: &Config, filename: &str) {
         match self {
             DiskImage::STX(image_data) => {
@@ -114,12 +265,12 @@ impl DiskImageParser for DiskImage<'_> {
 }
 
 /// Parses a file given a filename, returning a DiskImage
-pub fn file_parser<'a>(
+pub fn file_parser<'a, 'b>(
     filename: &str,
     data: &'a [u8],
-    config: &Config,
+    config: &'b Config,
 ) -> IResult<&'a [u8], DiskImage<'a>> {
-    let guess_image_type = format_from_filename(filename);
+    let guess_image_type = format_from_filename_and_data(filename, data);
 
     info!(
         "config ignore-checksums: {:?}",
@@ -129,8 +280,12 @@ pub fn file_parser<'a>(
     match guess_image_type {
         Some(i) => match i {
             DiskImageGuess::Apple(guess) => {
-                let result = apple_disk_parser(Some(guess), config)(data)?;
-                Ok((result.0, DiskImage::Apple(result.1)))
+                // Before this can be refactored to the
+                // DiskImageParser trait, the code needs to be
+                // rewritten to transfer ownership from
+                // the DiskImageGuess to the DiskImage
+                let res = apple_disk_parser(guess, config)?;
+                Ok((res.0, DiskImage::Apple(res.1)))
             }
             _ => panic!("Exiting"),
         },
@@ -149,11 +304,40 @@ pub fn disk_image_parser(i: &[u8]) -> IResult<&[u8], DiskImage> {
     ))(i)
 }
 
+/// Implementation of DiskImageParser for references to 8-bit integer arrays
+// impl<'a, 'b> DiskImageParser<'a, 'b> for &[u8] {
+//     fn parse_disk_image(
+//         self,
+//         config: &'b Config,
+//         filename: &str,
+//     ) -> IResult<&'a [u8], DiskImage<'a>> {
+//         file_parser(filename, self, config)
+//     }
+// }
+
+/// Implementation of DiskImageParser for 8-bit integer vectors
+impl<'a, 'b> DiskImageParser<'a, 'b> for Vec<u8> {
+    fn parse_disk_image(
+        &'a self,
+        config: &'b Config,
+        filename: &str,
+    ) -> std::result::Result<DiskImage<'a>, String> {
+        let result = file_parser(filename, self, config);
+        match result {
+            Ok(res) => Ok(res.1),
+            Err(e) => Err(nom::Err::Error(e).to_string()),
+        }
+    }
+}
+
 /// Guess an image format from a filename
-pub fn format_from_filename(filename: &str) -> Option<DiskImageGuess> {
+pub fn format_from_filename_and_data<'a>(
+    filename: &str,
+    data: &'a [u8],
+) -> Option<DiskImageGuess<'a>> {
     // TODO: format_from_filename should be defined by a trait, and
     // each module should expose a type that implements that trait
-    let apple_res = apple::disk::format_from_filename(filename);
+    let apple_res = apple::disk::format_from_filename_and_data(filename, data);
     apple_res.map(DiskImageGuess::Apple)
     // match apple_res {
     //     None => None,
@@ -194,7 +378,7 @@ mod tests {
 
     use super::apple::disk::{Encoding, Format};
     use super::AppleDiskGuess;
-    use super::{format_from_filename, DiskImageGuess};
+    use super::{format_from_filename_and_data, DiskImageGuess};
 
     /// Test collecting heuristics on disk image type
     #[test]
@@ -220,7 +404,7 @@ mod tests {
             panic!("Couldn't flush file stream: {}", e);
         });
 
-        let guess = format_from_filename(filename).unwrap_or_else(|| {
+        let guess = format_from_filename_and_data(filename, &data).unwrap_or_else(|| {
             panic!("Invalid filename guess");
         });
 
@@ -228,10 +412,7 @@ mod tests {
             DiskImageGuess::Apple(g) => {
                 assert_eq!(
                     g,
-                    AppleDiskGuess {
-                        encoding: Encoding::Plain,
-                        format: Format::DOS(143360),
-                    }
+                    AppleDiskGuess::new(Encoding::Plain, Format::DOS(143360), &data)
                 );
             }
             _ => {

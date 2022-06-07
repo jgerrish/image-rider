@@ -12,7 +12,7 @@ use nom::IResult;
 
 use std::fmt::{Display, Formatter, Result};
 
-use crate::disk_format::image::{DiskImage, DiskImageParser};
+use crate::disk_format::image::DiskImageSaver;
 use crate::disk_format::stx::track::{stx_tracks_parser, STXTrack};
 use crate::disk_format::stx::SanityCheck;
 
@@ -33,17 +33,29 @@ impl Display for STXDisk<'_> {
     }
 }
 
-impl DiskImageParser for STXDisk<'_> {
-    fn parse_disk_image<'a>(
-        _config: &Config,
-        _filename: &str,
-        data: &'a [u8],
-    ) -> IResult<&'a [u8], DiskImage<'a>> {
-        let (i, parse_result) = stx_disk_parser(data)?;
+// impl DiskImageParser for STXDisk<'_> {
+//     fn parse_disk_image<'a>(
+//         &self,
+//         _config: &Config,
+//         _filename: &str,
+//         data: &'a [u8],
+//     ) -> IResult<&'a [u8], DiskImage<'a>> {
+//         let (i, parse_result) = stx_disk_parser(data)?;
+//         Ok((i, DiskImage::STX(parse_result)))
+//     }
+// }
 
-        Ok((i, DiskImage::STX(parse_result)))
-    }
+/// Heuristic guesses for what kind of disk this is
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct STXDiskGuess<'a> {
+    /// The raw image data
+    pub data: &'a [u8],
+}
 
+impl DiskImageSaver for STXDisk<'_> {
+    /// This saves the underlying image on this disk.
+    /// This can be a FAT disk image, an ST disk, or a custom disk image
+    /// that may or may not be copy-protected.
     fn save_disk_image(&self, _config: &Config, filename: &str) {
         // It may be more efficient to return sector-size &[u8] iterators
         let disk_image_data: Vec<u8> = self

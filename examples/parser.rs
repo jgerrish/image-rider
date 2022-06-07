@@ -11,7 +11,7 @@ use config::Config;
 use env_logger;
 use log::{error, info};
 
-use image_rider::disk_format::image::{file_parser, DiskImageParser};
+use image_rider::disk_format::image::{DiskImageParser, DiskImageSaver};
 
 /// Command line arguments to parse an image file
 #[derive(Parser, Debug)]
@@ -92,7 +92,7 @@ fn main() {
 
     let data = open_file(&args.input);
 
-    let result = file_parser(&args.input, &data, &settings);
+    let result = data.parse_disk_image(&settings, &args.input);
 
     let image = match result {
         Err(e) => {
@@ -100,8 +100,8 @@ fn main() {
             exit(1);
         }
         Ok(res) => {
-            println!("Disk: {}", res.1);
-            res.1
+            println!("Disk: {}", res);
+            res
         }
     };
 

@@ -1,3 +1,6 @@
+///
+/// The image_rider::disk_format::image module provides a set of common functions
+/// and trait definitions for reading disks and cartridges.
 use config::Config;
 use log::info;
 
@@ -8,6 +11,8 @@ use nom::IResult;
 /// Parses a variety of disk image, ROM and other binary formats
 use std::fmt::{Display, Formatter, Result};
 
+use crate::error::{Error, ErrorKind, InvalidErrorKind};
+
 use crate::disk_format::apple::{
     self,
     disk::{apple_disk_parser, AppleDisk, AppleDiskData, AppleDiskGuess},
@@ -15,13 +20,19 @@ use crate::disk_format::apple::{
 use crate::disk_format::commodore::d64::{d64_disk_parser, D64Disk, D64DiskGuess};
 use crate::disk_format::stx::disk::{stx_disk_parser, STXDisk, STXDiskGuess};
 
-/// The different kinds of disk images
+/// DiskImage is the primary enumeration for holding disk images.
+///
+/// The DiskImageParser and DiskImageSaver trait functions return and
+/// operate on this enumeration.
 pub enum DiskImage<'a> {
     /// A Commodore 64 D64 Disk Image
     D64(D64Disk<'a>),
-    /// An Atari ST STX Disk Image
+    /// An Atari ST STX Disk Image.
+    /// Usually the raw data in a STX disk image is a FAT12 filesystem.
     STX(STXDisk<'a>),
-    /// An Apple ][ Disk Image
+    /// An Apple ][ Disk Image There are several different encodings,
+    /// formats, and filesystems for Apple2 disks.  This includes
+    /// nibble encoding and DOS 3.x and ProDOS filesystems.
     Apple(AppleDisk<'a>),
 }
 
@@ -68,7 +79,7 @@ pub trait DiskImageParser<'a, 'b> {
     ///
     /// # Returns
     ///
-    /// A Result containing the DiskImage or an error message.
+    /// A Result containing the DiskImage or an Error.
     ///
     /// # Examples
     /// ```no_run
@@ -107,7 +118,7 @@ pub trait DiskImageParser<'a, 'b> {
         &'a self,
         config: &'b Config,
         filename: &str,
-    ) -> std::result::Result<DiskImage<'a>, String>;
+    ) -> std::result::Result<DiskImage<'a>, Error>;
 }
 
 /// Test trait for getting parsing and ownership transferral working
@@ -128,7 +139,7 @@ pub trait TestParser<'a, 'b> {
         self,
         config: &'b Config,
         filename: &str,
-    ) -> std::result::Result<DiskImage<'a>, String>;
+    ) -> std::result::Result<DiskImage<'a>, Error>;
 }
 
 /// This trait provides convenient functions for getting and saving
@@ -228,15 +239,21 @@ impl<'a, 'b> TestParser<'a, 'b> for DiskImageGuess<'a> {
         self,
         config: &'b Config,
         _filename: &str,
-    ) -> std::result::Result<DiskImage<'a>, String> {
+    ) -> std::result::Result<DiskImage<'a>, Error> {
         match self {
-            DiskImageGuess::D64(_) => Err(String::from("Error parsing image from guess")),
-            DiskImageGuess::STX(_) => Err(String::from("Error parsing image from guess")),
+            DiskImageGuess::D64(_) => Err(Error::new(ErrorKind::Unimplemented(String::from(
+                "Error parsing image from guess",
+            )))),
+            DiskImageGuess::STX(_) => Err(Error::new(ErrorKind::Unimplemented(String::from(
+                "Error parsing image from guess",
+            )))),
             DiskImageGuess::Apple(guess) => {
                 let parser_result = apple_disk_parser(guess, config);
                 match parser_result {
                     Ok(res) => Ok(DiskImage::Apple(res.1)),
-                    Err(e) => Err(nom::Err::Error(e).to_string()),
+                    Err(e) => Err(Error::new(ErrorKind::Invalid(InvalidErrorKind::Invalid(
+                        nom::Err::Error(e).to_string(),
+                    )))),
                 }
             }
         }
@@ -321,16 +338,28 @@ impl<'a, 'b> DiskImageParser<'a, 'b> for Vec<u8> {
         &'a self,
         config: &'b Config,
         filename: &str,
-    ) -> std::result::Result<DiskImage<'a>, String> {
+    ) -> std::result::Result<DiskImage<'a>, Error> {
         let result = file_parser(filename, self, config);
         match result {
             Ok(res) => Ok(res.1),
-            Err(e) => Err(nom::Err::Error(e).to_string()),
+            Err(e) => Err(Error::new(ErrorKind::Invalid(InvalidErrorKind::Invalid(
+                nom::Err::Error(e).to_string(),
+            )))),
         }
     }
 }
 
-/// Guess an image format from a filename
+/// Guess an image format from a filename.  Builds and returns a
+/// DiskImageGuess for a given filename and file data.
+///
+/// # Arguments
+///
+/// - `filename` - The name of the file to generate a guess for.
+/// - `data` - The disk image data as a reference to a byte array.
+///
+/// # Returns
+///
+/// An Option containing the DiskImageGuess
 pub fn format_from_filename_and_data<'a>(
     filename: &str,
     data: &'a [u8],

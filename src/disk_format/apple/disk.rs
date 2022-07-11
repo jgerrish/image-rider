@@ -7,7 +7,6 @@ use std::path::Path;
 use config::Config;
 
 use nom::bytes::complete::take;
-use nom::error::ErrorKind;
 use nom::multi::count;
 use nom::number::complete::{le_i8, le_u16, le_u8};
 use nom::{Err, IResult};
@@ -18,6 +17,7 @@ use crate::disk_format::apple::catalog::{parse_catalog, Catalog};
 use crate::disk_format::apple::nibble::parse_nib_disk;
 use crate::disk_format::image::{DiskImage, DiskImageParser};
 use crate::disk_format::sanity_check::SanityCheck;
+use crate::error::{Error, ErrorKind, InvalidErrorKind};
 
 use super::nibble::NibbleDisk;
 
@@ -329,7 +329,7 @@ pub fn apple_140_k_dos_parser(
     } else {
         Err(Err::Error(nom::error::Error::new(
             guess.data,
-            ErrorKind::Fail,
+            nom::error::ErrorKind::Fail,
         )))
     }
 }
@@ -387,7 +387,10 @@ pub fn apple_disk_parser<'a, 'b>(
 
         if !vtoc.check() {
             error!("Invalid data");
-            return Err(Err::Error(nom::error::Error::new(i, ErrorKind::Fail)));
+            return Err(Err::Error(nom::error::Error::new(
+                i,
+                nom::error::ErrorKind::Fail,
+            )));
         }
 
         // parse out the sectors for track 17
@@ -413,7 +416,10 @@ pub fn apple_disk_parser<'a, 'b>(
         ))
     } else {
         // TODO: Refactor this, it's not really a nom error
-        Err(Err::Error(nom::error::make_error(i, ErrorKind::Fail)))
+        Err(Err::Error(nom::error::make_error(
+            i,
+            nom::error::ErrorKind::Fail,
+        )))
     }
 }
 
@@ -423,11 +429,13 @@ impl<'a, 'b> DiskImageParser<'a, 'b> for AppleDiskGuess<'a> {
         &'a self,
         config: &'b Config,
         _filename: &str,
-    ) -> std::result::Result<DiskImage<'a>, String> {
+    ) -> std::result::Result<DiskImage<'a>, Error> {
         let result = apple_disk_parser(*self, config);
         match result {
             Ok(apple_disk) => Ok(DiskImage::Apple(apple_disk.1)),
-            Err(e) => Err(nom::Err::Error(e).to_string()),
+            Err(e) => Err(Error::new(ErrorKind::Invalid(InvalidErrorKind::Invalid(
+                nom::Err::Error(e).to_string(),
+            )))),
         }
     }
 }

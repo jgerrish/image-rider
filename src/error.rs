@@ -1,3 +1,5 @@
+#![warn(missing_docs)]
+#![warn(unsafe_code)]
 //! Error results that can occur working with images
 use std::{
     fmt::{Debug, Display, Formatter, Result},

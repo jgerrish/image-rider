@@ -1,4 +1,4 @@
-/// Disk-level functions and data structures for Apple disks.
+//! Disk-level functions and data structures for Apple disks.
 use log::{debug, error, warn};
 
 use std::fs;

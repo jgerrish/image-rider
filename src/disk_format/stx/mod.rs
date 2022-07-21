@@ -1,32 +1,32 @@
-/// Parse an Atari ST STX (Pasti) disk image
-/// The basic structure of a Pasti image is:
-///
-/// ```ignore
-/// File Header
-/// Track Header
-///  Sector Header
-///   ...
-///  Sector Header
-///  Fuzzy sector mask (if it exists)
-///  Track data, may be track image itself, or image containing sector data, may be missing
-///  Sector data x sector count, if not in track image
-/// ...
-/// Track Header
-///  Sector Header
-///   ...
-/// etc.
-/// ```
-///
-/// Information from:\
-/// [STXdesc](https://atari.8bitchip.info/STXdesc.html) Good summary\
-/// [Hatari](https://github.com/hatari/hatari.git) Good AtariST emulator\
-/// [Thomas Bernard AtariST repo](https://github.com/miniupnp/AtariST.git)\
-///   A short Python script that gives a simple overview of reading in the metadata)\
-/// [CLK](https://github.com/TomHarte/CLK.git) modern C++ code\
-/// [pce](https://github.com/jsdf/pce.git) easy to understand code\
-/// [Pasti-documentation.pdf](http://info-coach.fr/atari/documents/_mydoc/Pasti-documentation.pdf)\
-///   Pasti File Documentation Jean Louis-Guérin\
-///
+//! Parse an Atari ST STX (Pasti) disk image
+//! The basic structure of a Pasti image is:
+//!
+//! ```ignore
+//! File Header
+//! Track Header
+//!  Sector Header
+//!   ...
+//!  Sector Header
+//!  Fuzzy sector mask (if it exists)
+//!  Track data, may be track image itself, or image containing sector data, may be missing
+//!  Sector data x sector count, if not in track image
+//! ...
+//! Track Header
+//!  Sector Header
+//!   ...
+//! etc.
+//! ```
+//!
+//! Information from:\
+//! [STXdesc](https://atari.8bitchip.info/STXdesc.html) Good summary\
+//! [Hatari](https://github.com/hatari/hatari.git) Good AtariST emulator\
+//! [Thomas Bernard AtariST repo](https://github.com/miniupnp/AtariST.git)\
+//!   A short Python script that gives a simple overview of reading in the metadata)\
+//! [CLK](https://github.com/TomHarte/CLK.git) modern C++ code\
+//! [pce](https://github.com/jsdf/pce.git) easy to understand code\
+//! [Pasti-documentation.pdf](http://info-coach.fr/atari/documents/_mydoc/Pasti-documentation.pdf)\
+//!   Pasti File Documentation Jean Louis-Guérin\
+//!
 #[warn(missing_docs)]
 #[warn(unsafe_code)]
 

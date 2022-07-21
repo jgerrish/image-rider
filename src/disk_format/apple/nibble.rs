@@ -1,4 +1,4 @@
-/// Encoding and Decoding Nibble-based disk formats
+//! Encoding and Decoding Nibble-based disk formats
 use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::Write;

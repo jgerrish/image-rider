@@ -1,8 +1,8 @@
-///
-/// Disk format parsers
-///
-#[warn(missing_docs)]
-#[warn(unsafe_code)]
+#![warn(missing_docs)]
+#![warn(unsafe_code)]
+//!
+//! Disk format parsers
+//!
 
 /// Sanity checking trait
 pub mod sanity_check;

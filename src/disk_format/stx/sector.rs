@@ -1,6 +1,6 @@
-///
-/// STX Disk sector functions
-///
+//!
+//! STX Disk sector functions
+//!
 use std::fmt::{Display, Formatter, Result};
 
 use log::{debug, error, info};

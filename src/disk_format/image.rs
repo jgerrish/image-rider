@@ -1,14 +1,11 @@
-///
-/// The image_rider::disk_format::image module provides a set of common functions
-/// and trait definitions for reading disks and cartridges.
+//! The image_rider::disk_format::image module provides a set of common functions
+//! and trait definitions for reading disks and cartridges.
 use config::Config;
 use log::info;
 
 use nom::branch::alt;
 use nom::combinator::map;
 use nom::IResult;
-/// Generic image formater parser
-/// Parses a variety of disk image, ROM and other binary formats
 use std::fmt::{Display, Formatter, Result};
 
 use crate::error::{Error, ErrorKind, InvalidErrorKind};
@@ -19,6 +16,7 @@ use crate::disk_format::apple::{
 };
 use crate::disk_format::commodore::d64::{d64_disk_parser, D64Disk, D64DiskGuess};
 use crate::disk_format::stx::disk::{stx_disk_parser, STXDisk, STXDiskGuess};
+use crate::init;
 
 /// DiskImage is the primary enumeration for holding disk images.
 ///
@@ -240,6 +238,9 @@ impl<'a, 'b> TestParser<'a, 'b> for DiskImageGuess<'a> {
         config: &'b Config,
         _filename: &str,
     ) -> std::result::Result<DiskImage<'a>, Error> {
+        // Initialize the image-rider module
+        init();
+
         match self {
             DiskImageGuess::D64(_) => Err(Error::new(ErrorKind::Unimplemented(String::from(
                 "Error parsing image from guess",
@@ -339,6 +340,9 @@ impl<'a, 'b> DiskImageParser<'a, 'b> for Vec<u8> {
         config: &'b Config,
         filename: &str,
     ) -> std::result::Result<DiskImage<'a>, Error> {
+        // Initialize the image-rider module
+        init();
+
         let result = file_parser(filename, self, config);
         match result {
             Ok(res) => Ok(res.1),

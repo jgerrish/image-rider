@@ -1,6 +1,8 @@
-/// Parse an image file
-/// Usage: cargo run --example parser --input FILENAME
-///
+#![warn(missing_docs)]
+#![warn(unsafe_code)]
+//! Parse an image file
+//! Usage: cargo run --example parser --input FILENAME
+//!
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;

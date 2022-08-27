@@ -12,6 +12,7 @@ use log::error;
 
 pub mod disk_format;
 pub mod error;
+pub mod serialize;
 
 /// Initialize the module.
 /// This should be called before any parsing is performed.

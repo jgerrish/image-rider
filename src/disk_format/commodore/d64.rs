@@ -32,7 +32,7 @@ pub enum DOSType {
 }
 
 /// Heuristic guesses for what kind of disk this is
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct D64DiskGuess<'a> {
     /// The raw image data
     pub data: &'a [u8],

@@ -8,6 +8,7 @@ use std::{
 
 /// An error that can occur when processing an image, ROM or other
 /// file.
+#[derive(PartialEq)]
 pub struct Error {
     kind: ErrorKind,
 }
@@ -54,6 +55,12 @@ pub enum ErrorKind {
     /// when attempting to extract a specific file from a file, or
     /// when attempting to extract a certain sector or other item.
     NotFound(String),
+}
+
+impl PartialEq for ErrorKind {
+    fn eq(&self, other: &Self) -> bool {
+        self == other
+    }
 }
 
 impl Display for ErrorKind {

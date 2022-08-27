@@ -46,7 +46,7 @@ impl Display for STXDisk<'_> {
 // }
 
 /// Heuristic guesses for what kind of disk this is
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct STXDiskGuess<'a> {
     /// The raw image data
     pub data: &'a [u8],

@@ -8,6 +8,8 @@ use nom::number::complete::{le_u16, le_u8};
 use std::fmt::{Display, Formatter, Result};
 use std::string::FromUtf8Error;
 
+use crate::serialize::{little_endian_word_to_bytes, Serializer};
+
 /// Different file types
 #[derive(Clone, Copy, Debug)]
 pub enum FileType {
@@ -76,6 +78,34 @@ pub struct FileEntry<'a> {
 /// A separate data structure could be added to cache the result of these
 /// filename calculations
 impl<'a> FileEntry<'a> {
+    /// Create a new FileEntry with the given data
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use image_rider::disk_format::apple::catalog::{FileEntry, FileType};
+    ///
+    /// let fe = FileEntry::new(0x12, 0x0F, FileType::AppleSoftBasic, false, "HELLO", 0x0002);
+    /// assert_eq!(fe.filename().unwrap(), "HELLO");
+    /// ```
+    pub fn new(
+        track_of_first_track_sector_list_sector: u8,
+        sector_of_first_track_sector_list_sector: u8,
+        file_type: FileType,
+        locked: bool,
+        filename: &str,
+        file_length_in_sectors: u16,
+    ) -> FileEntry {
+        FileEntry {
+            track_of_first_track_sector_list_sector,
+            sector_of_first_track_sector_list_sector,
+            file_type,
+            locked,
+            file_name: filename.as_bytes(),
+            file_length_in_sectors,
+        }
+    }
+
     /// Return the filename as a String
     pub fn filename(&self) -> std::result::Result<String, FromUtf8Error> {
         let filename_vector: Vec<u8> = self
@@ -90,6 +120,54 @@ impl<'a> FileEntry<'a> {
         let file_name = String::from(file_name.trim_end_matches(' '));
         Ok(file_name)
     }
+}
+
+impl<'a> Serializer<'a> for FileEntry<'a> {
+    fn as_vec(&'a self) -> std::result::Result<Vec<u8>, crate::error::Error> {
+        let mut bytes: Vec<u8> = Vec::new();
+
+        bytes.push(self.track_of_first_track_sector_list_sector);
+        bytes.push(self.sector_of_first_track_sector_list_sector);
+
+        let file_type = if self.locked {
+            self.file_type as u8 + 0x80
+        } else {
+            self.file_type as u8
+        };
+
+        bytes.push(file_type);
+
+        let num_bytes = self.file_name.len();
+        // This may be misusing the ErrorKind::Invalid type
+        if (num_bytes == 0) || (num_bytes > 30) {
+            return Err(crate::error::Error::new(crate::error::ErrorKind::Invalid(
+                crate::error::InvalidErrorKind::Invalid(format!(
+                    "Filename size is invalid: {}",
+                    num_bytes
+                )),
+            )));
+        }
+
+        let mut padding: Vec<u8> = vec![0; 30 - num_bytes];
+
+        padding.fill(0xA0);
+
+        let mut converted_filename: Vec<u8> =
+            self.file_name.to_vec().iter().map(|c| c + 0x80).collect();
+
+        bytes.append(&mut converted_filename);
+        bytes.append(&mut padding);
+        bytes.append(&mut little_endian_word_to_bytes(
+            self.file_length_in_sectors,
+        ));
+
+        Ok(bytes)
+    }
+
+    // /// Optimize this with something, trait of a trait or whatever
+    // fn as_bytes(&'a self) -> &[u8] {
+    //     (*self).as_bytes()
+    // }
 }
 
 /// Format a FileEntry for display
@@ -235,7 +313,16 @@ pub fn parse_catalog(i: &[u8]) -> IResult<&[u8], Catalog> {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_catalog, parse_file_entry, FileType};
+    use super::{parse_catalog, parse_file_entry, FileEntry, FileType};
+    use crate::serialize::Serializer;
+    use nom::AsBytes;
+
+    /// Returns a 35-byte file entry with a given filename
+    fn file_entry_as_bytes(
+        file_entry: &FileEntry,
+    ) -> std::result::Result<[u8; 35], crate::error::Error> {
+        Ok(file_entry.as_vec()?.as_bytes().try_into().unwrap())
+    }
 
     /// Test that parsing a file entry works
     #[test]
@@ -312,6 +399,134 @@ mod tests {
             Err(e) => {
                 panic!("Error parsing: {}", e);
             }
+        }
+    }
+
+    /// Test that serializing a file entry works
+    #[test]
+    fn serialize_file_entry_works() {
+        let expected_data: [u8; 35] = [
+            0x12, 0x0F, 0x02, 0xC8, 0xC5, 0xCC, 0xCC, 0xCF, 0xA0, 0xA0, 0xA0, 0xA0, 0xA0, 0xA0,
+            0xA0, 0xA0, 0xA0, 0xA0, 0xA0, 0xA0, 0xA0, 0xA0, 0xA0, 0xA0, 0xA0, 0xA0, 0xA0, 0xA0,
+            0xA0, 0xA0, 0xA0, 0xA0, 0xA0, 0x02, 0x00,
+        ];
+
+        let data = file_entry_as_bytes(&FileEntry::new(
+            0x12,
+            0x0F,
+            FileType::AppleSoftBasic,
+            false,
+            "HELLO",
+            0x0002,
+        ));
+
+        assert_eq!(data.unwrap(), expected_data);
+    }
+
+    /// Test that serializing a file entry works
+    #[test]
+    fn serialize_locked_file_entry_works() {
+        let expected_data: [u8; 35] = [
+            0x12, 0x0F, 0x82, 0xC8, 0xC5, 0xCC, 0xCC, 0xCF, 0xA0, 0xA0, 0xA0, 0xA0, 0xA0, 0xA0,
+            0xA0, 0xA0, 0xA0, 0xA0, 0xA0, 0xA0, 0xA0, 0xA0, 0xA0, 0xA0, 0xA0, 0xA0, 0xA0, 0xA0,
+            0xA0, 0xA0, 0xA0, 0xA0, 0xA0, 0x02, 0x00,
+        ];
+
+        let data = file_entry_as_bytes(&FileEntry::new(
+            0x12,
+            0x0F,
+            FileType::AppleSoftBasic,
+            true,
+            "HELLO",
+            0x0002,
+        ));
+
+        assert_eq!(data.unwrap(), expected_data);
+    }
+
+    /// Test that serializing a file entry with a zero length filename
+    /// works.
+    /// Decide whether this should be a type constraint
+    #[test]
+    fn serialize_file_name_len_0_file_entry_fails() {
+        let file_entry = FileEntry::new(0x12, 0x0F, FileType::AppleSoftBasic, false, "", 0x0002);
+
+        let file_entry_as_vec = file_entry.as_vec();
+
+        match file_entry_as_vec {
+            Ok(_) => panic!("Shouldn't be a valid FileEntry"),
+            Err(e) => assert_eq!(
+                e.to_string(),
+                "Image is invalid: Filename size is invalid: 0"
+            ),
+        }
+    }
+
+    /// Test that serializing a file entry with a one length filename
+    /// works
+    #[test]
+    fn serialize_file_name_len_1_file_entry_works() {
+        let expected_data: [u8; 35] = [
+            0x12, 0x0F, 0x02, 0xC8, 0xA0, 0xA0, 0xA0, 0xA0, 0xA0, 0xA0, 0xA0, 0xA0, 0xA0, 0xA0,
+            0xA0, 0xA0, 0xA0, 0xA0, 0xA0, 0xA0, 0xA0, 0xA0, 0xA0, 0xA0, 0xA0, 0xA0, 0xA0, 0xA0,
+            0xA0, 0xA0, 0xA0, 0xA0, 0xA0, 0x02, 0x00,
+        ];
+
+        let data = file_entry_as_bytes(&FileEntry::new(
+            0x12,
+            0x0F,
+            FileType::AppleSoftBasic,
+            false,
+            "H",
+            0x0002,
+        ));
+
+        assert_eq!(data.unwrap(), expected_data);
+    }
+
+    /// Test that serializing a file entry with a 30 length filename
+    /// works
+    #[test]
+    fn serialize_file_name_len_30_file_entry_works() {
+        let expected_data: [u8; 35] = [
+            0x12, 0x0F, 0x02, 0xB0, 0xB1, 0xB2, 0xB3, 0xB4, 0xB5, 0xB6, 0xB7, 0xB8, 0xB9, 0xB0,
+            0xB1, 0xB2, 0xB3, 0xB4, 0xB5, 0xB6, 0xB7, 0xB8, 0xB9, 0xB0, 0xB1, 0xB2, 0xB3, 0xB4,
+            0xB5, 0xB6, 0xB7, 0xB8, 0xB9, 0x02, 0x00,
+        ];
+
+        let data = file_entry_as_bytes(&FileEntry::new(
+            0x12,
+            0x0F,
+            FileType::AppleSoftBasic,
+            false,
+            "012345678901234567890123456789",
+            0x0002,
+        ));
+
+        assert_eq!(data.unwrap(), expected_data);
+    }
+
+    /// Test that serializing a file entry with a 30 length filename
+    /// works
+    #[test]
+    fn serialize_file_name_len_31_file_entry_fails() {
+        let file_entry = FileEntry::new(
+            0x12,
+            0x0F,
+            FileType::AppleSoftBasic,
+            false,
+            "0123456789012345678901234567890",
+            0x0002,
+        );
+
+        let file_entry_as_vec = file_entry.as_vec();
+
+        match file_entry_as_vec {
+            Ok(_) => panic!("Shouldn't be a valid FileEntry"),
+            Err(e) => assert_eq!(
+                e.to_string(),
+                "Image is invalid: Filename size is invalid: 31"
+            ),
         }
     }
 

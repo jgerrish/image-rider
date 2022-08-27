@@ -22,7 +22,7 @@ use crate::error::{Error, ErrorKind, InvalidErrorKind};
 use super::nibble::NibbleDisk;
 
 /// The different types of endoding wrappers for the disks
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Encoding {
     /// No special encoding, a raw disk image
     Plain,
@@ -38,7 +38,7 @@ impl Display for Encoding {
 }
 
 /// The different types of Apple disks
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Format {
     /// Unknown disk format.
     /// We may not have enough information at the current stage to know the format
@@ -246,7 +246,7 @@ impl Display for AppleDisk<'_> {
 }
 
 /// Heuristic guesses for what kind of disk this is
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct AppleDiskGuess<'a> {
     /// The disk encoding
     pub encoding: Encoding,

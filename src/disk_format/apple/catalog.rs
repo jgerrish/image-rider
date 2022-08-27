@@ -111,9 +111,15 @@ impl Display for FileEntry<'_> {
 pub fn parse_file_entry(i: &[u8]) -> IResult<&[u8], FileEntry> {
     let (i, track_of_first_track_sector_list_sector) = le_u8(i)?;
     let (i, sector_of_first_track_sector_list_sector) = le_u8(i)?;
+
     let (i, file_type) = le_u8(i)?;
+
+    // The file type code the disk contains information about the
+    // file type and also whether the file is locked.  If the file is
+    // locked, bit seven is set.
     let locked = (file_type & 0x80) != 0;
-    let file_type = match file_type {
+
+    let file_type = match file_type & 0x7F {
         0 => FileType::Text,
         1 => FileType::IntegerBasic,
         2 => FileType::AppleSoftBasic,
@@ -254,6 +260,46 @@ mod tests {
                         panic!("Invalid file type parsed");
                     }
                 }
+                assert!(!file_entry.1.locked);
+                assert_eq!(
+                    file_entry.1.file_name,
+                    [
+                        0xC8, 0xC5, 0xCC, 0xCC, 0xCF, 0xA0, 0xA0, 0xA0, 0xA0, 0xA0, 0xA0, 0xA0,
+                        0xA0, 0xA0, 0xA0, 0xA0, 0xA0, 0xA0, 0xA0, 0xA0, 0xA0, 0xA0, 0xA0, 0xA0,
+                        0xA0, 0xA0, 0xA0, 0xA0, 0xA0, 0xA0,
+                    ]
+                );
+            }
+            Err(e) => {
+                panic!("Error parsing: {}", e);
+            }
+        }
+    }
+
+    /// Test that parsing a locked file entry works
+    #[test]
+    fn parse_file_entry_locked_works() {
+        let data: [u8; 35] = [
+            0x12, 0x0F, 0x82, 0xC8, 0xC5, 0xCC, 0xCC, 0xCF, 0xA0, 0xA0, 0xA0, 0xA0, 0xA0, 0xA0,
+            0xA0, 0xA0, 0xA0, 0xA0, 0xA0, 0xA0, 0xA0, 0xA0, 0xA0, 0xA0, 0xA0, 0xA0, 0xA0, 0xA0,
+            0xA0, 0xA0, 0xA0, 0xA0, 0xA0, 0x02, 0x00,
+        ];
+
+        let result = parse_file_entry(&data);
+
+        match result {
+            Ok(file_entry) => {
+                assert_eq!(file_entry.1.track_of_first_track_sector_list_sector, 18);
+                assert_eq!(file_entry.1.sector_of_first_track_sector_list_sector, 15);
+                match file_entry.1.file_type {
+                    FileType::AppleSoftBasic => {
+                        assert_eq!(true, true);
+                    }
+                    _ => {
+                        panic!("Invalid file type parsed");
+                    }
+                }
+                assert!(file_entry.1.locked);
                 assert_eq!(
                     file_entry.1.file_name,
                     [

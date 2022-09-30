@@ -13,7 +13,7 @@ use config::Config;
 use env_logger;
 use log::{error, info};
 
-use image_rider::disk_format::image::{DiskImageParser, DiskImageSaver};
+use image_rider::disk_format::image::{DiskImage, DiskImageParser, DiskImageSaver};
 
 /// Command line arguments to parse an image file
 #[derive(Parser, Debug)]
@@ -22,11 +22,16 @@ struct Args {
     /// Filename to parse
     #[clap(short, long)]
     input: String,
+    /// Filename to select for writing.
+    /// Specifying a filename select that file to saving if output is
+    /// also specified.
+    #[clap(short, long)]
+    filename: Option<String>,
     /// Filename to write track image data to,
-    /// this writes the entire disk to a single file
+    /// This writes the entire disk to a single file.
     #[clap(short, long)]
     output: Option<String>,
-    /// Ignore any failed checksums on the disk data
+    /// Ignore any failed checksums on the disk data.
     #[clap(long)]
     ignore_checksums: bool,
 }
@@ -107,14 +112,40 @@ fn main() {
         }
     };
 
+    let result = write_file(&settings, &args, &image);
+    match result {
+        Err(e) => {
+            error!("{}", e);
+            exit(1);
+        }
+        Ok(_) => {}
+    }
+
+    exit(0);
+}
+
+/// Save a file from the image to disk if the user specifies it.
+fn write_file(
+    settings: &Config,
+    args: &Args,
+    image: &DiskImage,
+) -> std::result::Result<(), image_rider::error::Error> {
     // Find the type of disk image and write the track or sector data if its available
     if let Some(output_filename) = &args.output {
         info!("Got output filename, testing for image data");
 
-        image.save_disk_image(&settings, &output_filename);
+        match &args.filename {
+            Some(s) => {
+                image.save_disk_image(&settings, Some(s.as_str()), &output_filename)?;
+            }
+            None => {
+                image.save_disk_image(&settings, None, &output_filename)?;
+            }
+        };
+        println!("Wrote file");
     }
 
-    exit(0);
+    Ok(())
 }
 
 /// load settings from a config file

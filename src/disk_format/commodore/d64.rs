@@ -197,7 +197,16 @@ impl DiskImageSaver for D64Disk<'_> {
     /// This saves the underlying image on this disk.
     /// This can be a FAT disk image, an ST disk, or a custom disk image
     /// that may or may not be copy-protected.
-    fn save_disk_image(&self, _config: &Config, _filename: &str) {
-        panic!("Saving D64 disk images not implemented\n");
+    fn save_disk_image(
+        &self,
+        _config: &Config,
+        _selected_filename: Option<&str>,
+        _filename: &str,
+    ) -> std::result::Result<(), crate::error::Error> {
+        Err(crate::error::Error::new(
+            crate::error::ErrorKind::Unimplemented(String::from(
+                "Saving D64 disk images not implemented\n",
+            )),
+        ))
     }
 }

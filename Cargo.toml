@@ -1,6 +1,6 @@
 [package]
 name = "image-rider"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2021"
 authors = ["Joshua Gerrish <jgerrish@gmail.com>"]
 description = "Disk image and ROM image parser"
@@ -19,4 +19,4 @@ toml = "0.5"
 nom = "7.1"
 
 [dev-dependencies]
-pretty_assertions = "1.1"
+pretty_assertions = "1.3"

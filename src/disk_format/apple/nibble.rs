@@ -1,30 +1,72 @@
 //! Encoding and Decoding Nibble-based disk formats
 use std::collections::BTreeMap;
+use std::convert::TryInto;
 use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
 
 use config::Config;
-use log::error;
+use log::{debug, error};
 
-use nom::bytes::complete::{take, take_until};
-use nom::multi::many0;
-use nom::number::complete::le_u8;
-use nom::IResult;
+use nom::{
+    bytes::streaming::{take, take_until},
+    character::complete::one_of,
+    multi::many0,
+    number::complete::le_u8,
+    IResult,
+};
 
 use crate::disk_format::image::DiskImageSaver;
 
-// const NIBBLE_WRITE_TABLE_6_AND_2: [u8; 64] = [
-//     0x96,0x97,0x9A,0x9B,0x9D,0x9E,0x9F,0xA6,
-//     0xA7,0xAB,0xAC,0xAD,0xAE,0xAF,0xB2,0xB3,
-//     0xB4,0xB5,0xB6,0xB7,0xB9,0xBA,0xBB,0xBC,
-//     0xBD,0xBE,0xBF,0xCB,0xCD,0xCE,0xCF,0xD3,
-//     0xD6,0xD7,0xD9,0xDA,0xDB,0xDC,0xDD,0xDE,
-//     0xDF,0xE5,0xE6,0xE7,0xE9,0xEA,0xEB,0xEC,
-//     0xED,0xEE,0xEF,0xF2,0xF3,0xF4,0xF5,0xF6,
-//     0xF7,0xF9,0xFA,0xFB,0xFC,0xFD,0xFE,0xFF
-// ];
+/// The different nibble encoding formats used for Apple disk images.
+/// These are required because of hardware requirements with Apple
+/// disk drives.  Not all 256 possible byte values could be written to
+/// disk.
+///
+/// The first requirement for hardware required that the high bit
+/// always be set.
+/// Second, at least two adjacent bits need to be set.
+/// Third, at most one pair of consecutive zero bits.
+///
+/// This leaves 34 valid disk bytes, in the range from AA to FF.
+/// Two of these bytes are reserved: 0xAA and 0xD5
+///
+/// This led to the "4 and 4" encoding format.  This
+/// splits the byte into two bytes, one containing the odd bytes and
+/// one containing the even bytes.
+/// Other encoding formats satisify these properties while allowing
+/// more efficient data usage.
+pub enum Format {
+    /// Four and four splits each data byte into two disk bytes,
+    /// containing the odd and even bits.
 
+    /// b_7 b_6 b_5 b_4 b_3 b_2 b_1 b_0 -> 1 . . . b_7 b_5 b_3 b_1,
+    ///                                    1 . . . b_6 b_4 b_2 b_0
+    /// Used in earlier versions of DOS before DOS 3
+    FourAndFour,
+
+    /// 5 and 3 uses 5 bits of the data in the disk byte
+    /// Used in DOS versions from DOS 3 to DOS 3.2.1
+    FiveAndThree,
+
+    /// 6 and 2 uses 6 bits of the data in the disk byte
+    /// This was enabled by changes in the disk ROM that allowed two
+    /// consecutive zero bits.
+    /// Used in DOS 3.3
+    SixAndTwo,
+}
+
+/// The converstion table for writing nibble data
+#[allow(dead_code)]
+const NIBBLE_WRITE_TABLE_6_AND_2: [u8; 64] = [
+    0x96, 0x97, 0x9A, 0x9B, 0x9D, 0x9E, 0x9F, 0xA6, 0xA7, 0xAB, 0xAC, 0xAD, 0xAE, 0xAF, 0xB2, 0xB3,
+    0xB4, 0xB5, 0xB6, 0xB7, 0xB9, 0xBA, 0xBB, 0xBC, 0xBD, 0xBE, 0xBF, 0xCB, 0xCD, 0xCE, 0xCF, 0xD3,
+    0xD6, 0xD7, 0xD9, 0xDA, 0xDB, 0xDC, 0xDD, 0xDE, 0xDF, 0xE5, 0xE6, 0xE7, 0xE9, 0xEA, 0xEB, 0xEC,
+    0xED, 0xEE, 0xEF, 0xF2, 0xF3, 0xF4, 0xF5, 0xF6, 0xF7, 0xF9, 0xFA, 0xFB, 0xFC, 0xFD, 0xFE, 0xFF,
+];
+
+/// The converstion table for reading nibble data
+/// It's the write table inverted
 const NIBBLE_READ_TABLE_6_AND_2: [u8; 256] = [
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -67,6 +109,44 @@ pub struct AddressField {
     pub checksum: u8,
 }
 
+/// Finds the first sector address prologue in the data
+/// Returns the prologue as a slice of three bytes
+pub fn parse_prologue(i: &[u8]) -> IResult<&[u8], &[u8]> {
+    // Find 0xD5 0xAA, the start of the address prologue, then either 0x96 or 0xB5
+    // If another ending byte is found, keep searching from that point
+    let mut new_i = i;
+
+    loop {
+        let (i, _result) = take_until(&[0xD5, 0xAA][..])(new_i)?;
+
+        // Start the search at the character after DFAA
+        new_i = &i[2..];
+
+        let result = one_of::<&[u8], [u8; 2], crate::error::Error>([0x96_u8, 0xB5_u8])(new_i);
+        match result {
+            Ok(r) => {
+                debug!("Found an address field prologue");
+                return Ok((r.0, i));
+            }
+            // Should check for EOF error
+            Err(_e) => {}
+        }
+
+        // Next search includes the character after DFAA
+    }
+}
+
+/// Searches for an address prologue in the image
+/// If it's found, it returns the byte indicating the type of the prologue
+pub fn recognize_prologue(i: &[u8]) -> Option<u8> {
+    let result: IResult<&[u8], &[u8]> = parse_prologue(i);
+
+    match result {
+        Ok(r) => Some(r.1[2]),
+        Err(_) => None,
+    }
+}
+
 /// Find and parse an address field in the nibblized file
 pub fn find_and_parse_address_field(
     config: &Config,
@@ -84,20 +164,16 @@ pub fn find_and_parse_address_field(
     move |i| {
         let (i, _data) = take_until(&[0xD5, 0xAA, 0x96][..])(i)?;
         let (i, _prologue) = take(3_usize)(i)?;
-        // let (_i, volume_data) = take(2_usize)(i)?;
         let (i, volume) = parse_nibble_byte_4_and_4(i)?;
-        // let (_i, track_data) = take(2_usize)(i)?;
         let (i, track) = parse_nibble_byte_4_and_4(i)?;
-        // let (_i, sector_data) = take(2_usize)(i)?;
         let (i, sector) = parse_nibble_byte_4_and_4(i)?;
-        // let (_i, checksum_data) = take(2_usize)(i)?;
         let (i, checksum) = parse_nibble_byte_4_and_4(i)?;
         let (i, _epilogue) = take(3_usize)(i)?;
 
-        // debug!(
-        //     "Found address field: volume: {:?}, {}, track: {:?} {}, sector: {:?} {}, checksum: {:?} {}",
-        //     volume_data, volume, track_data, track, sector_data, sector, checksum_data, checksum
-        // );
+        debug!(
+            "Found address field: volume: {}, track: {}, sector: {}, checksum: {}",
+            volume, track, sector, checksum
+        );
 
         let computed_checksum = volume ^ track ^ sector;
 
@@ -127,10 +203,14 @@ pub fn find_and_parse_address_field(
 
 /// A 6 and 2 encoded data field that follows an address field in a nibblized image
 pub struct DataField {
+    /// The DataField prologue, three bytes
+    _prologue: [u8; 3],
     /// 342 bytes of data, encoded as 6 and 2
     pub data: Vec<u8>,
     /// The checksum of the data
     pub checksum: u8,
+    /// The DataField epilogue, three bytes
+    _epilogue: [u8; 3],
 }
 
 /// Parse the data component of a data field
@@ -155,17 +235,19 @@ pub fn find_and_parse_data_field(i: &[u8]) -> IResult<&[u8], DataField> {
     // 342 bytes data, 6 and 2 encoded
     // 1 byte checksum
     // Epilogue DE AA EB
-    let (i, _prologue) = take(3_usize)(i)?;
+    let (i, prologue) = take(3_usize)(i)?;
     let (i, data) = take(342_usize)(i)?;
     let (i, checksum) = le_u8(i)?;
     // let (i, _epilogue) = tag(&[0xDE, 0xAA, 0xEB][..])(i)?;
-    let (i, _epilogue) = take(3_usize)(i)?;
+    let (i, epilogue) = take(3_usize)(i)?;
 
     Ok((
         i,
         DataField {
+            _prologue: prologue.try_into().unwrap(),
             data: data.to_vec(),
             checksum,
+            _epilogue: epilogue.try_into().unwrap(),
         },
     ))
 }
@@ -177,6 +259,28 @@ pub struct Sector {
     pub data: Vec<u8>,
 }
 
+/// Compute the checksum and transformed buffer for the data field
+pub fn data_field_build_buffer(data_field: &DataField) -> ([u8; 342], u8) {
+    // The data is split up into several different sections
+    // The first 0x56 bytes are the "auxiliary data buffer"
+    // Starting at offset 0x56 the 6 bit bytes are stored
+    let mut computed_checksum: u8 = 0;
+    let data_field_data_size = data_field.data.len();
+    let mut buffer = [0; 342];
+
+    for (index, byte) in data_field.data.iter().enumerate() {
+        computed_checksum ^= NIBBLE_READ_TABLE_6_AND_2[(*byte) as usize];
+        if index < 0x56 {
+            buffer[data_field_data_size - index - 1] = computed_checksum;
+        } else {
+            buffer[index - 0x56] = computed_checksum;
+        }
+    }
+    computed_checksum ^= NIBBLE_READ_TABLE_6_AND_2[data_field.checksum as usize];
+
+    (buffer, computed_checksum)
+}
+
 /// Transform a 6 and 2 data field to a 256-byte sector
 pub fn transform_data_field(config: &Config, data_field: &DataField) -> Sector {
     // The data is split up into several different sections
@@ -186,33 +290,20 @@ pub fn transform_data_field(config: &Config, data_field: &DataField) -> Sector {
     // Beneath Apple DOS and Beneath Apple ProDOS
     // The source code for AppleCommander and apple2emu was invaluable
     // in writing this code
-    // let mut data = parse_6_and_2_nibblized_data(data);
-
-    let mut computed_checksum: u8 = 0;
-    // let mut xor_value = 0;
-    let data_field_data_size = data_field.data.len();
-    let mut buffer = [0; 342];
     let mut data = [0; 256];
 
-    // Optimize later
-    // First, understand the algorithm and disk data structure
-    for (index, byte) in data_field.data.iter().enumerate() {
-        computed_checksum ^= NIBBLE_READ_TABLE_6_AND_2[(*byte) as usize];
-        if index < 0x56 {
-            // The - 1 is probably optimized away by the compiler
-            buffer[data_field_data_size - index - 1] = computed_checksum;
-        } else {
-            buffer[index - 0x56] = computed_checksum;
-        }
-    }
+    let (buffer, computed_checksum) = data_field_build_buffer(data_field);
 
-    if computed_checksum != data_field.checksum {
+    if computed_checksum != 0 {
         error!(
             "Invalid checksum on data: calculated: {}, disk: {}",
             computed_checksum, data_field.checksum
         );
         if !config.get_bool("ignore-checksums").unwrap_or(false) {
-            panic!("Invalid checksum on data");
+            panic!(
+                "Invalid checksum on data: calculated: {}, disk: {}",
+                computed_checksum, data_field.checksum
+            );
         }
     }
 
@@ -229,6 +320,89 @@ pub fn transform_data_field(config: &Config, data_field: &DataField) -> Sector {
     Sector {
         data: data.to_vec(),
     }
+}
+
+// pub fn build_nibble_sector_5_and_3(data: &[u8]) -> DataField {
+// }
+
+/// Nibblize a sector
+/// This nibblizes a sector using the 6 and 2 algorithm
+/// This encodes data in the lower six bits.
+/// There are two reserved bytes, 0xAA and 0xD5
+///
+/// There are several ways this can be done.  The clearest is to split
+/// up the data into blocks that are multiples of six, since the
+/// encoding format uses the lower six bits.
+/// For u8 blocks of size six or 256 (the standard sector size) work.
+pub fn build_nibble_sector(data: &[u8]) -> DataField {
+    // The nibble data plus two bytes for the checksum
+    let mut nibble_data: [u8; 344] = [0; 344];
+
+    // The following was recommended from cargo-clippy, it's the equivalent of a
+    // loop over the entire data array:
+    // for i in 0..=255 {
+    //     nibble_data[i + 86] = data[i];
+    // }
+    // Copy a slice instead
+    nibble_data[86..(0xFF + 0x56 + 1)].copy_from_slice(&data[..(0xFF + 1)]);
+
+    let mut val: u8;
+
+    for (i, nibble_item) in nibble_data.iter_mut().enumerate().take(0x56) {
+        let ac_index: usize = (i + 0xAC) % 0x100;
+        let index_56: usize = (i + 0x56) % 0x100;
+        let index: usize = i % 0x100;
+        val = (((data[ac_index] & 0x1) << 1) | ((data[ac_index] & 0x2) >> 1)) << 6;
+        val |= (((data[index_56] & 0x1) << 1) | ((data[index_56] & 0x2) >> 1)) << 4;
+        val |= (((data[index] & 0x1) << 1) | ((data[index] & 0x2) >> 1)) << 2;
+        *nibble_item = val;
+    }
+
+    nibble_data[84] &= 0x3F;
+    nibble_data[85] &= 0x3F;
+
+    let mut checksum: u8 = 0;
+    let mut saved_data: u8;
+    for item in &mut nibble_data {
+        saved_data = *item;
+        *item ^= checksum;
+        checksum = saved_data;
+    }
+
+    let final_data: [u8; 342] = nibble_data[0..=341]
+        .iter()
+        .map(|d| NIBBLE_WRITE_TABLE_6_AND_2[(d >> 2) as usize])
+        .collect::<Vec<u8>>()
+        .try_into()
+        .unwrap();
+
+    DataField {
+        _prologue: [0xD5, 0xAA, 0xAD],
+        data: final_data.to_vec(),
+        checksum,
+        _epilogue: [0xDE, 0xAA, 0xEB],
+    }
+}
+
+/// Nibblize a slice of u8 data
+pub fn nibblize_data(data: &[u8]) -> Vec<u8> {
+    let mut output_data: Vec<u8> = Vec::new();
+
+    let mut i = 0;
+    debug!("Data length: {}", data.len());
+    while (i + 256) < data.len() {
+        let block = &data[i..=(i + 255)];
+        output_data.append(&mut build_nibble_sector(block).data);
+        i += 256;
+    }
+
+    if i > 0 {
+        i -= 256;
+    }
+    let block = &data[i..data.len()];
+    output_data.append(&mut build_nibble_sector(block).data);
+
+    output_data
 }
 
 /// A single track on the disk
@@ -283,7 +457,12 @@ pub struct NibbleDisk {
 // }
 
 impl DiskImageSaver for NibbleDisk {
-    fn save_disk_image(&self, _config: &Config, filename: &str) {
+    fn save_disk_image(
+        &self,
+        _config: &Config,
+        _selected_filename: Option<&str>,
+        filename: &str,
+    ) -> std::result::Result<(), crate::error::Error> {
         let filename = PathBuf::from(filename);
         let file_result = File::create(filename);
         match file_result {
@@ -298,6 +477,7 @@ impl DiskImageSaver for NibbleDisk {
             }
             Err(e) => error!("Error opening file: {}", e),
         }
+        Ok(())
     }
 }
 
@@ -312,7 +492,6 @@ pub struct Field {
 }
 
 /// Parse an address field, data field and build a Sector
-/// TODO: Maybe use one of the fold combinators
 pub fn parse_nib_sector(config: &Config) -> impl Fn(&[u8]) -> IResult<&[u8], Field> + '_ {
     move |i| {
         let (i, header) = find_and_parse_address_field(config)(i)?;
@@ -333,9 +512,11 @@ pub fn parse_nib_disk(config: &Config) -> impl Fn(&[u8]) -> IResult<&[u8], Nibbl
     move |i| {
         let (i, fields) = many0(parse_nib_sector(config))(i)?;
 
+        debug!("Found {} fields", fields.len());
         let mut disk = NibbleDisk::default();
 
         for field in &fields {
+            debug!("Parsing another field");
             let volume = disk.volumes.entry(field.address_field.volume);
             let track = volume.or_default().tracks.entry(field.address_field.track);
             let sector = track.or_default().sectors.entry(field.address_field.sector);
@@ -348,8 +529,13 @@ pub fn parse_nib_disk(config: &Config) -> impl Fn(&[u8]) -> IResult<&[u8], Nibbl
 
 #[cfg(test)]
 mod tests {
-    use super::{find_and_parse_address_field, parse_nibble_byte_4_and_4};
+    use super::{
+        build_nibble_sector, data_field_build_buffer, find_and_parse_address_field,
+        parse_nibble_byte_4_and_4, parse_prologue, transform_data_field, DataField,
+        NIBBLE_WRITE_TABLE_6_AND_2,
+    };
     use config::Config;
+    use pretty_assertions::assert_eq;
 
     /// Test nibble byte 4 and 4 parsing works
     #[test]
@@ -447,6 +633,51 @@ mod tests {
         }
     }
 
+    /// Test that transform_data_field works
+    /// TODO: Build some known checksum values
+    #[test]
+    pub fn transform_data_field_works() {
+        let mut data: [u8; 342] = [0; 342];
+
+        for i in 0..=341 {
+            data[i] = NIBBLE_WRITE_TABLE_6_AND_2[(i % 0x40) as usize];
+        }
+
+        let data_field = DataField {
+            _prologue: [0xD5, 0xAA, 0xAD],
+            data: data.to_vec(),
+            checksum: 0x96,
+            _epilogue: [0xDE, 0xAA, 0xEB],
+        };
+
+        let (_buffer, checksum) = data_field_build_buffer(&data_field);
+
+        assert_eq!(checksum, 1);
+    }
+
+    /// Do a round-trip test of nibblizing a sector and denibblizing
+    /// it.  More work needs to be done on this.
+    ///
+    /// A full disk round-trip test may not be byte-for-byte equal.
+    /// The nibblized data may be out of order, which is why data
+    /// address headers are included.
+    #[test]
+    pub fn data_field_round_trip() {
+        let mut original_data: [u8; 256] = [0; 256];
+
+        for i in 0_u8..=255_u8 {
+            original_data[i as usize] = i;
+        }
+        original_data[255] = 1;
+
+        let data_field = build_nibble_sector(&original_data);
+
+        let config = Config::default();
+        let sector = transform_data_field(&config, &data_field);
+
+        assert_eq!(sector.data, original_data);
+    }
+
     /// Test find_and_parse_address_field with invalid checksum
     #[test]
     #[should_panic(expected = "Address field computed checksum not equal to disk checksum: 236 0")]
@@ -466,6 +697,128 @@ mod tests {
             Err(_e) => {
                 panic!("Should fail with checksum error");
             }
+        }
+    }
+
+    // Test address field prologue parsing and identification
+
+    /// Test parsing a simple address field for a DOS 3.3 disk
+    #[test]
+    fn parse_prologue_dos_33_works() {
+        let data = [0xD5, 0xAA, 0x96];
+
+        let result = parse_prologue(&data);
+
+        match result {
+            Ok(r) => {
+                assert_eq!(r.1, &[0xD5, 0xAA, 0x96]);
+            }
+            Err(_) => {
+                panic!("Shouldn't fail parsing data");
+            }
+        }
+    }
+
+    /// Test parsing a simple address field for a DOS 3.3 disk
+    /// Where the first header is several bytes in the data
+    #[test]
+    fn parse_prologue_dos_33_skip_works() {
+        let data = [0x00, 0x00, 0xD5, 0xAA, 0x96];
+
+        let result = parse_prologue(&data);
+
+        match result {
+            Ok(r) => {
+                assert_eq!(r.1, &[0xD5, 0xAA, 0x96]);
+            }
+            Err(_) => {
+                panic!("Shouldn't fail parsing data");
+            }
+        }
+    }
+
+    /// Test parsing a simple address field for a DOS 3.2 disk
+    #[test]
+    fn parse_prologue_dos_32_works() {
+        let data = [0xD5, 0xAA, 0xB5];
+
+        let result = parse_prologue(&data);
+
+        match result {
+            Ok(r) => {
+                assert_eq!(r.1, &[0xD5, 0xAA, 0xB5]);
+            }
+            Err(_) => {
+                panic!("Shouldn't fail parsing data");
+            }
+        }
+    }
+
+    /// Test parsing a prologe on data without one
+    #[test]
+    fn parse_no_prologue_fails() {
+        let data = [0x00, 0x00, 0x00];
+
+        let result = parse_prologue(&data);
+
+        match result {
+            Ok(_) => {
+                panic!("Should fail parsing data");
+            }
+            Err(e) => match e {
+                nom::Err::Incomplete(nom::Needed::Unknown) => {
+                    assert_eq!("Parsing requires more data", e.to_string());
+                }
+                _ => {
+                    panic!("Wrong parsing error");
+                }
+            },
+        }
+    }
+
+    /// Test parsing a prologue on data that matches the first two
+    /// prologue bytes but not the last.
+    #[test]
+    fn parse_incomplete_prologue_fails() {
+        let data = [0xD5, 0xAA, 0x00];
+
+        let result = parse_prologue(&data);
+
+        match result {
+            Ok(_) => {
+                panic!("Should fail parsing data");
+            }
+            Err(e) => match e {
+                nom::Err::Incomplete(nom::Needed::Unknown) => {
+                    assert_eq!("Parsing requires more data", e.to_string());
+                }
+                _ => {
+                    panic!("Wrong parsing error");
+                }
+            },
+        }
+    }
+
+    /// Test parsing a prologue on data that matches the first two
+    /// prologue bytes with no data left fails.
+    #[test]
+    fn parse_incomplete_prologue_two_bytes_fails() {
+        let data = [0xD5, 0xAA];
+
+        let result = parse_prologue(&data);
+
+        match result {
+            Ok(_) => {
+                panic!("Should fail parsing data");
+            }
+            Err(e) => match e {
+                nom::Err::Incomplete(nom::Needed::Unknown) => {
+                    assert_eq!("Parsing requires more data", e.to_string());
+                }
+                _ => {
+                    panic!("Wrong parsing error");
+                }
+            },
         }
     }
 }

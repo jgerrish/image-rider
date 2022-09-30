@@ -1,8 +1,12 @@
 //! Disk-level functions and data structures for Apple disks.
-use log::{debug, error, warn};
+use log::{debug, error, info, warn};
 
-use std::fs;
-use std::path::Path;
+use std::{
+    cmp::min,
+    fs::{self, File},
+    io::Write,
+    path::{Path, PathBuf},
+};
 
 use config::Config;
 
@@ -13,9 +17,9 @@ use nom::{Err, IResult};
 
 use std::fmt::{Display, Formatter, Result};
 
-use crate::disk_format::apple::catalog::{parse_catalog, Catalog};
-use crate::disk_format::apple::nibble::parse_nib_disk;
-use crate::disk_format::image::{DiskImage, DiskImageParser};
+use crate::disk_format::apple::catalog::{build_files, parse_catalogs, Files, FullCatalog};
+use crate::disk_format::apple::nibble::{parse_nib_disk, recognize_prologue};
+use crate::disk_format::image::{DiskImage, DiskImageParser, DiskImageSaver};
 use crate::disk_format::sanity_check::SanityCheck;
 use crate::error::{Error, ErrorKind, InvalidErrorKind};
 
@@ -30,7 +34,7 @@ pub enum Encoding {
     Nibble,
 }
 
-/// Format a Format for display
+/// Format an Encoding for display
 impl Display for Encoding {
     fn fmt(&self, f: &mut Formatter) -> Result {
         write!(f, "{:?}", self)
@@ -44,8 +48,10 @@ pub enum Format {
     /// We may not have enough information at the current stage to know the format
     /// This is a simple data type so it should be fast to update
     Unknown(u64),
+    /// Apple DOS (3.2)
+    DOS32(u64),
     /// Apple DOS (3.3)
-    DOS(u64),
+    DOS33(u64),
     /// Apple ProDOS
     ProDOS(u64),
 }
@@ -104,6 +110,8 @@ pub struct VolumeTableOfContents<'a> {
     pub number_of_bytes_per_sector: u16,
 
     /// bytes 0x38 - 0xFF
+    /// Each bit map of free sectors for a track is four bytes long
+    /// There is one for each track, usually 35 in DOS 3.3 disks
     pub bit_map_of_free_sectors: Vec<&'a [u8]>,
 }
 
@@ -164,7 +172,11 @@ pub fn parse_volume_table_of_contents(i: &[u8]) -> IResult<&[u8], VolumeTableOfC
     let (i, number_of_sectors_per_track) = le_u8(i)?;
     let (i, number_of_bytes_per_sector) = le_u16(i)?;
 
-    let (i, bit_map_of_free_sectors) = count(take(4_usize), 50_usize)(i)?;
+    // We'll read in as many as the VTOC says we have tracks, limited
+    // to 50, which stays within the 256-byte limit.
+    let bit_maps_to_read = min(number_of_tracks_per_diskette, 50);
+
+    let (i, bit_map_of_free_sectors) = count(take(4_usize), bit_maps_to_read.into())(i)?;
 
     Ok((
         i,
@@ -193,12 +205,18 @@ impl SanityCheck for VolumeTableOfContents<'_> {
     fn check(&self) -> bool {
         if (self.number_of_tracks_per_diskette != 35) && (self.number_of_tracks_per_diskette != 40)
         {
-            debug!("Suspicious number of tracks per diskette");
+            debug!(
+                "Suspicious number of tracks per diskette: {}",
+                self.number_of_tracks_per_diskette
+            );
             return false;
         }
 
         if (self.number_of_sectors_per_track != 13) && (self.number_of_sectors_per_track != 16) {
-            debug!("Suspicious number of tracks per diskette");
+            debug!(
+                "Suspicious number of sectors per track: {}",
+                self.number_of_sectors_per_track
+            );
             return false;
         }
 
@@ -211,12 +229,23 @@ pub struct AppleDOSDisk<'a> {
     /// The Volume Table of Contents
     pub volume_table_of_contents: VolumeTableOfContents<'a>,
     /// The disk catalog
-    pub _catalog: Catalog<'a>,
-    /// Disk tracks
-    pub _tracks: Vec<&'a [u8]>,
+    pub catalog: FullCatalog<'a>,
+    /// Disk tracks.
+    /// Tracks is a vector of sectors, which is a vector of byte
+    /// slices.
+    pub tracks: Vec<Vec<&'a [u8]>>,
+
+    /// The files with data
+    pub files: Files<'a>,
 }
 
 /// The different types of Apple disks
+/// We're ignoring the large_enum_variant warning for now, enum size is still less than
+/// 512 bytes
+/// On normal invocations in the current codebase we only have one
+/// instance of this enum.  Future versions may have more, but for now
+/// the cost is not an issue.
+#[allow(clippy::large_enum_variant)]
 pub enum AppleDiskData<'a> {
     /// An Apple ][ DOS disk (1.x, 2.x, 3.x)
     DOS(AppleDOSDisk<'a>),
@@ -226,8 +255,35 @@ pub enum AppleDiskData<'a> {
     Nibble(NibbleDisk),
 }
 
+impl<'a> DiskImageSaver for AppleDOSDisk<'a> {
+    fn save_disk_image(
+        &self,
+        _config: &Config,
+        selected_filename: Option<&str>,
+        filename: &str,
+    ) -> std::result::Result<(), crate::error::Error> {
+        if selected_filename.is_none() {
+            error!("Filename must be specified for saving Apple DOS 3.3 images");
+            return Err(crate::error::Error::new(ErrorKind::Message(String::from(
+                "Filename must be specified for saving Apple DOS 3.3 images",
+            ))));
+        }
+        let selected_filename = selected_filename.unwrap();
+        let filename = PathBuf::from(filename);
+        let file_result = File::create(filename);
+        match file_result {
+            Ok(mut file) => {
+                let selected_file = self.files.get(selected_filename).unwrap();
+
+                file.write_all(&selected_file.data)?;
+            }
+            Err(e) => error!("Error opening file: {}", e),
+        }
+        Ok(())
+    }
+}
+
 /// An Apple ][ Disk
-//#[derive(Debug)]
 pub struct AppleDisk<'a> {
     /// The disk encoding
     pub encoding: Encoding,
@@ -297,14 +353,22 @@ pub fn format_from_filename_and_data<'a>(
     {
         "dsk" => Some(AppleDiskGuess::new(
             Encoding::Plain,
-            Format::DOS(filesize),
+            Format::DOS33(filesize),
             data,
         )),
-        "nib" => Some(AppleDiskGuess::new(
-            Encoding::Nibble,
-            Format::Unknown(filesize),
-            data,
-        )),
+        "nib" => {
+            let prologue_byte_result = recognize_prologue(data);
+            let format = match prologue_byte_result {
+                Some(r) => match r {
+                    0xB5 => Format::DOS32(filesize),
+                    0x96 => Format::DOS33(filesize),
+                    _ => Format::Unknown(filesize),
+                },
+                None => Format::Unknown(filesize),
+            };
+
+            Some(AppleDiskGuess::new(Encoding::Nibble, format, data))
+        }
         &_ => None,
     }
 }
@@ -318,6 +382,13 @@ pub fn apple_tracks_parser(
 }
 
 /// Parse the tracks on a 140K Apple ][ Disk
+/// This parses the disks and returns the farthest index and a vector
+/// of u8 slices or an error (it actually returns an IResult, which is
+/// composed of this).
+/// The index of the vector is the track number.
+/// Each vector element is 4096 bytes long if tracks_per_disk is 35
+/// It's 143360 / tracks_per_disk for a 140k disk.  That's all the
+/// sectors for that track index.
 pub fn apple_140_k_dos_parser(
     guess: AppleDiskGuess,
     tracks_per_disk: usize,
@@ -334,92 +405,143 @@ pub fn apple_140_k_dos_parser(
     }
 }
 
+/// Parse a DOS 3.3 disk volume
+pub fn volume_parser<'a>(
+    guess: AppleDiskGuess<'a>,
+    filesize: u64,
+) -> IResult<&[u8], AppleDisk<'a>> {
+    // guess the tracks per disk
+    let tracks_per_disk = 35;
+
+    // guess the starting track for the catalog.
+    // This sometimes starts at other locations.
+    // The variable name is somewhat confusing, it's the track
+    // where the catalog starts.
+    let catalog_sector_start = 17;
+
+    // 140K Apple DOS image
+    // Use the apple_140_k_dos_parser
+    // raw_tracks is a vector of all the tracks, NOT split into
+    // separate sectors
+    let (_i, raw_tracks) = apple_140_k_dos_parser(guess, tracks_per_disk)?;
+
+    // Verify that this is the Volume Table of Contents
+    // The catalog should start on sector 17
+    // Sometimes this is zero-based indexing, sometimes it's one-based
+
+    // One heuristic is to check if byte 1 is equal to 17,
+    // the standard track number of the first catalog
+    // sector.
+    // byte 2 is usually equal to 15, the sector number of
+    // the first catalog sector
+    // Another heuristic is to check for a valid DOS release number:
+    // DOS versions to check for: 1, 2, 3
+    let (i, vtoc) = parse_volume_table_of_contents(raw_tracks[catalog_sector_start])?;
+
+    debug!("VTOC: {}", vtoc);
+
+    if !vtoc.check() {
+        error!("Invalid data");
+        return Err(Err::Error(nom::error::Error::new(
+            i,
+            nom::error::ErrorKind::Fail,
+        )));
+    }
+
+    let mut tracks: Vec<Vec<&[u8]>> = Vec::new();
+
+    // parse out the sectors for track 17
+    // This parses through every sector in track catalog_sector_start
+    // and splits it up into 16 sectors of 256 bytes each
+
+    let catalog_sector = raw_tracks[catalog_sector_start][2];
+
+    for track in raw_tracks {
+        let mut track_vec: Vec<&[u8]> = Vec::new();
+        let (_i, sectors) = count(take(256_usize), 16)(track)?;
+        for sector in sectors {
+            track_vec.push(sector);
+        }
+        tracks.push(track_vec);
+    }
+
+    let catalog_res = parse_catalogs(
+        &tracks,
+        catalog_sector_start.try_into().unwrap(),
+        catalog_sector,
+    );
+    let catalog = match catalog_res {
+        Ok(catalog) => catalog,
+        Err(_e) => {
+            return Err(Err::Error(nom::error::Error::new(
+                i,
+                nom::error::ErrorKind::Fail,
+            )));
+        }
+    };
+
+    debug!("Catalog:\n{}", catalog);
+
+    // TODO: Properly convert errors and define an error for this
+    let files = build_files(catalog.clone(), &tracks).unwrap();
+
+    let apple_dos_disk = AppleDOSDisk {
+        volume_table_of_contents: vtoc,
+        catalog,
+        tracks,
+        files,
+    };
+
+    Ok((
+        i,
+        AppleDisk {
+            encoding: Encoding::Plain,
+            format: Format::DOS33(filesize),
+            data: AppleDiskData::DOS(apple_dos_disk),
+        },
+    ))
+}
+
 /// Parse an Apple ][ Disk
 pub fn apple_disk_parser<'a, 'b>(
     guess: AppleDiskGuess<'a>,
     config: &'b Config,
 ) -> IResult<&'a [u8], AppleDisk<'a>> {
     let i = guess.data;
-    let filesize = if let Format::DOS(size) = guess.format {
-        size
-    } else {
-        let (i, disk) = parse_nib_disk(config)(i)?;
 
-        return Ok((
-            i,
-            AppleDisk {
-                encoding: guess.encoding,
-                format: guess.format,
-                data: AppleDiskData::Nibble(disk),
-            },
-        ));
-        // if config.output {
-        //     disk.save_disk_image(config, &config.output);
-        // }
-    };
+    debug!("Parsing based on guess: {}", guess);
 
-    if filesize == 143360 {
-        // guess the tracks per disk
-        let tracks_per_disk = 35;
-        // guess the starting sector for the catalog
-        // This sometimes starts at other locations
-        let catalog_sector_start = 17;
+    match guess.encoding {
+        Encoding::Plain => {
+            let filesize = if let Format::DOS33(size) = guess.format {
+                size
+            } else {
+                0
+            };
 
-        // 140K Apple DOS image
-        // Use the apple_140_k_dos_parser
-        let (_i, tracks) = apple_140_k_dos_parser(guess, tracks_per_disk)?;
-
-        debug!("number of tracks: {}", tracks.len());
-        // Verify that this is the Volume Table of Contents
-        // The catalog should start on sector 17
-        // Sometimes this is zero-based indexing, sometimes it's one-based
-
-        // One heuristic is to check if byte 1 is equal to 17,
-        // the standard track number of the first catalog
-        // sector.
-        // byte 2 is usually equal to 15, the sector number of
-        // the first catalog sector
-        // Another heuristic is to check for a valid DOS release number:
-        // DOS versions to check for: 1, 2, 3
-        let (i, vtoc) = parse_volume_table_of_contents(tracks[catalog_sector_start])?;
-
-        debug!("VTOC: {}", vtoc);
-
-        if !vtoc.check() {
-            error!("Invalid data");
-            return Err(Err::Error(nom::error::Error::new(
-                i,
-                nom::error::ErrorKind::Fail,
-            )));
+            if filesize == 143360 {
+                volume_parser(guess, filesize)
+            } else {
+                // TODO: Refactor this, it's not really a nom error
+                Err(Err::Error(nom::error::make_error(
+                    i,
+                    nom::error::ErrorKind::Fail,
+                )))
+            }
         }
+        Encoding::Nibble => {
+            debug!("Parsing as nibble format");
+            let (i, disk) = parse_nib_disk(config)(i)?;
 
-        // parse out the sectors for track 17
-        let (_i, sectors) = count(take(256_usize), 16)(tracks[catalog_sector_start])?;
-        let catalog_sector = tracks[catalog_sector_start][2];
-        let (_i2, catalog) = parse_catalog(sectors[catalog_sector as usize])?;
-
-        debug!("Catalog: {}", catalog);
-
-        let apple_dos_disk = AppleDOSDisk {
-            volume_table_of_contents: vtoc,
-            _catalog: catalog,
-            _tracks: tracks,
-        };
-
-        Ok((
-            i,
-            AppleDisk {
-                encoding: Encoding::Plain,
-                format: Format::DOS(filesize),
-                data: AppleDiskData::DOS(apple_dos_disk),
-            },
-        ))
-    } else {
-        // TODO: Refactor this, it's not really a nom error
-        Err(Err::Error(nom::error::make_error(
-            i,
-            nom::error::ErrorKind::Fail,
-        )))
+            return Ok((
+                i,
+                AppleDisk {
+                    encoding: guess.encoding,
+                    format: guess.format,
+                    data: AppleDiskData::Nibble(disk),
+                },
+            ));
+        }
     }
 }
 
@@ -430,6 +552,7 @@ impl<'a, 'b> DiskImageParser<'a, 'b> for AppleDiskGuess<'a> {
         config: &'b Config,
         _filename: &str,
     ) -> std::result::Result<DiskImage<'a>, Error> {
+        info!("DiskImageParser Attempting to parse Apple disk");
         let result = apple_disk_parser(*self, config);
         match result {
             Ok(apple_disk) => Ok(DiskImage::Apple(apple_disk.1)),
@@ -504,7 +627,7 @@ mod tests {
 
         assert_eq!(
             guess,
-            AppleDiskGuess::new(Encoding::Plain, Format::DOS(143360), &data)
+            AppleDiskGuess::new(Encoding::Plain, Format::DOS33(143360), &data)
         );
 
         std::fs::remove_file(filename).unwrap_or_else(|e| {
@@ -563,7 +686,7 @@ mod tests {
         //     panic!("Invalid filename guess");
         // });
 
-        let guess = AppleDiskGuess::new(Encoding::Plain, Format::DOS(143360), &data);
+        let guess = AppleDiskGuess::new(Encoding::Plain, Format::DOS33(143360), &data);
 
         let config = Config::default();
         let res = apple_disk_parser(guess, &config);
@@ -574,7 +697,7 @@ mod tests {
                     let vtoc = apple_dos_disk.volume_table_of_contents;
 
                     assert_eq!(disk.1.encoding, Encoding::Plain);
-                    assert_eq!(disk.1.format, Format::DOS(143360));
+                    assert_eq!(disk.1.format, Format::DOS33(143360));
                     assert_eq!(vtoc.track_number_of_first_catalog_sector, 17);
                     assert_eq!(vtoc.sector_number_of_first_catalog_sector, 15);
                     assert_eq!(vtoc.release_number_of_dos, 3);
@@ -613,7 +736,7 @@ mod tests {
             panic!("Error writing test file: {}", e);
         });
 
-        let guess = AppleDiskGuess::new(Encoding::Plain, Format::DOS(143360), &data);
+        let guess = AppleDiskGuess::new(Encoding::Plain, Format::DOS33(143360), &data);
 
         let config = Config::default();
         let res = apple_disk_parser(guess, &config);

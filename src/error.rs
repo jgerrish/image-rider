@@ -1,6 +1,6 @@
+//! Error results that can occur working with images
 #![warn(missing_docs)]
 #![warn(unsafe_code)]
-//! Error results that can occur working with images
 use std::{
     fmt::{Debug, Display, Formatter, Result},
     io,
@@ -31,6 +31,34 @@ impl Error {
     /// Create a new Error with a given ErrorKind variant
     pub fn new(kind: ErrorKind) -> Error {
         Error { kind }
+    }
+}
+
+impl From<nom::Err<nom::error::Error<&[u8]>>> for Error {
+    fn from(e: nom::Err<nom::error::Error<&[u8]>>) -> Self {
+        Error::new(ErrorKind::new(&e.to_string()))
+    }
+}
+
+// impl From<nom::Err<nom::error::ParseError<&[u8]>>> for Error {
+//     fn from(e: nom::Err<nom::error::Error<&[u8]>>) -> Self {
+//         Error::new(ErrorKind::new(&e.to_string()))
+//     }
+// }
+
+impl<'a> nom::error::ParseError<&'a [u8]> for Error {
+    fn from_error_kind(_input: &'a [u8], kind: nom::error::ErrorKind) -> Self {
+        Error::new(ErrorKind::new(kind.description()))
+    }
+
+    fn append(_input: &'a [u8], _kind: nom::error::ErrorKind, other: Self) -> Self {
+        other
+    }
+}
+
+impl From<std::io::Error> for Error {
+    fn from(e: std::io::Error) -> Self {
+        Error::new(ErrorKind::new(&e.to_string()))
     }
 }
 
@@ -87,6 +115,7 @@ impl ErrorKind {
 }
 
 /// An InvalidErrorKind is returned when the data is invalid.
+#[derive(Eq, PartialEq)]
 pub enum InvalidErrorKind {
     /// The data was invalid
     Invalid(String),

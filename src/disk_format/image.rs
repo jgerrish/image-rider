@@ -8,20 +8,37 @@ use nom::combinator::map;
 use nom::IResult;
 use std::fmt::{Display, Formatter, Result};
 
-use crate::error::{Error, ErrorKind, InvalidErrorKind};
-
-use crate::disk_format::apple::{
-    self,
-    disk::{apple_disk_parser, AppleDisk, AppleDiskData, AppleDiskGuess},
+use crate::{
+    disk_format::{
+        apple::{
+            self,
+            disk::{apple_disk_parser, AppleDisk, AppleDiskData, AppleDiskGuess},
+        },
+        commodore::d64::{d64_disk_parser, D64Disk, D64DiskGuess},
+        stx::disk::{stx_disk_parser, STXDisk, STXDiskGuess},
+    },
+    error::{Error, ErrorKind, InvalidErrorKind},
+    init,
 };
-use crate::disk_format::commodore::d64::{d64_disk_parser, D64Disk, D64DiskGuess};
-use crate::disk_format::stx::disk::{stx_disk_parser, STXDisk, STXDiskGuess};
-use crate::init;
 
 /// DiskImage is the primary enumeration for holding disk images.
 ///
 /// The DiskImageParser and DiskImageSaver trait functions return and
 /// operate on this enumeration.
+///
+/// Because the Disk data structures are more intelligent than simple
+/// byte-oriented C structures, copying them isn't as easy as copying
+/// a block of bytes.
+/// rust-clippy recommends boxing the large fields to reduce the total size of the enum.
+/// This is a new recommendation, we'll ignore it for now and investigate other solution.
+/// DiskImage construction is usually done once at the beginning of the program,
+/// and total variant size is still around ~512 bytes
+/// On normal invocations in the current codebase we only have one
+/// instance of this enum.  Future versions may have more, but for now
+/// the cost is not an issue.
+/// If this code is adapted to process a large number of images and
+/// thrashing is a concern, feel free to fix it.
+#[allow(clippy::large_enum_variant)]
 pub enum DiskImage<'a> {
     /// A Commodore 64 D64 Disk Image
     D64(D64Disk<'a>),
@@ -187,7 +204,7 @@ pub trait DiskImageSaver {
     /// if let Ok(disk_image) = result {
     ///     println!("Successful parse");
     ///     // Save the data
-    ///     disk_image.save_disk_image(&settings, tmp_out_filename);
+    ///     disk_image.save_disk_image(&settings, None, tmp_out_filename);
     /// }
     ///
     /// // Teardown code
@@ -199,7 +216,12 @@ pub trait DiskImageSaver {
     /// });
     ///
     /// ```
-    fn save_disk_image(&self, config: &Config, filename: &str);
+    fn save_disk_image(
+        &self,
+        config: &Config,
+        selected_filename: Option<&str>,
+        filename: &str,
+    ) -> std::result::Result<(), crate::error::Error>;
 }
 
 /// The result of heuristics to guess a disk image
@@ -237,7 +259,7 @@ impl<'a, 'b> TestParser<'a, 'b> for DiskImageGuess<'a> {
         self,
         config: &'b Config,
         _filename: &str,
-    ) -> std::result::Result<DiskImage<'a>, Error> {
+    ) -> std::result::Result<DiskImage<'a>, crate::error::Error> {
         // Initialize the image-rider module
         init();
 
@@ -262,23 +284,45 @@ impl<'a, 'b> TestParser<'a, 'b> for DiskImageGuess<'a> {
 }
 
 impl DiskImageSaver for DiskImage<'_> {
-    fn save_disk_image(&self, config: &Config, filename: &str) {
+    fn save_disk_image(
+        &self,
+        config: &Config,
+        selected_filename: Option<&str>,
+        filename: &str,
+    ) -> std::result::Result<(), crate::error::Error> {
         match self {
             DiskImage::STX(image_data) => {
-                image_data.save_disk_image(config, filename);
+                image_data.save_disk_image(config, None, filename)?;
+                Ok(())
             }
             DiskImage::Apple(apple_image) => match &apple_image.data {
                 AppleDiskData::Nibble(nibble_image) => {
-                    nibble_image.save_disk_image(config, filename);
+                    nibble_image.save_disk_image(config, None, filename)?;
+                    Ok(())
+                }
+                AppleDiskData::DOS(dos_image) => {
+                    info!("Saving DOS 3.3 file");
+                    dos_image.save_disk_image(config, selected_filename, filename)?;
+                    Ok(())
                 }
                 _ => {
                     info!("Unsupported image for file saving");
+                    Err(crate::error::Error::new(
+                        crate::error::ErrorKind::Unimplemented(String::from(
+                            "Saving unknown Apple disk images not implemented\n",
+                        )),
+                    ))
                 }
             },
             _ => {
                 info!("Unsupported image for file saving");
+                Err(crate::error::Error::new(
+                    crate::error::ErrorKind::Unimplemented(String::from(
+                        "Saving unknown disk images not implemented\n",
+                    )),
+                ))
             }
-        };
+        }
     }
 }
 
@@ -302,6 +346,7 @@ pub fn file_parser<'a, 'b>(
                 // DiskImageParser trait, the code needs to be
                 // rewritten to transfer ownership from
                 // the DiskImageGuess to the DiskImage
+                info!("Attempting to parse Apple disk");
                 let res = apple_disk_parser(guess, config)?;
                 Ok((res.0, DiskImage::Apple(res.1)))
             }
@@ -445,7 +490,7 @@ mod tests {
             DiskImageGuess::Apple(g) => {
                 assert_eq!(
                     g,
-                    AppleDiskGuess::new(Encoding::Plain, Format::DOS(143360), &data)
+                    AppleDiskGuess::new(Encoding::Plain, Format::DOS33(143360), &data)
                 );
             }
             _ => {

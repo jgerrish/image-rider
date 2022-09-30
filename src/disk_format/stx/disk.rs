@@ -56,7 +56,12 @@ impl DiskImageSaver for STXDisk<'_> {
     /// This saves the underlying image on this disk.
     /// This can be a FAT disk image, an ST disk, or a custom disk image
     /// that may or may not be copy-protected.
-    fn save_disk_image(&self, _config: &Config, filename: &str) {
+    fn save_disk_image(
+        &self,
+        _config: &Config,
+        _selected_filename: Option<&str>,
+        filename: &str,
+    ) -> std::result::Result<(), crate::error::Error> {
         // It may be more efficient to return sector-size &[u8] iterators
         let disk_image_data: Vec<u8> = self
             .stx_tracks
@@ -75,6 +80,7 @@ impl DiskImageSaver for STXDisk<'_> {
             }
             Err(e) => error!("Error opening file: {}", e),
         }
+        Ok(())
     }
 }
 

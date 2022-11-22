@@ -1,14 +1,11 @@
 //! Error results that can occur working with images
 #![warn(missing_docs)]
 #![warn(unsafe_code)]
-use std::{
-    fmt::{Debug, Display, Formatter, Result},
-    io,
-};
+use std::fmt::{Debug, Display, Formatter, Result};
 
 /// An error that can occur when processing an image, ROM or other
 /// file.
-#[derive(PartialEq)]
+#[derive(Eq, PartialEq)]
 pub struct Error {
     kind: ErrorKind,
 }
@@ -64,12 +61,10 @@ impl From<std::io::Error> for Error {
 
 /// The kinds of errors that can occur when processing an image, ROM
 /// or other file.
+#[derive(Debug, Eq, PartialEq)]
 pub enum ErrorKind {
     /// Generic error type
     Message(String),
-
-    /// An error that occurs while reading or writing image data.
-    Io(io::Error),
 
     /// An error that occurs when dealing with invalid or unexpected
     /// data.
@@ -85,17 +80,10 @@ pub enum ErrorKind {
     NotFound(String),
 }
 
-impl PartialEq for ErrorKind {
-    fn eq(&self, other: &Self) -> bool {
-        self == other
-    }
-}
-
 impl Display for ErrorKind {
     fn fmt(&self, f: &mut Formatter) -> Result {
         match self {
             ErrorKind::Message(message) => write!(f, "An error occurred: {}", message),
-            ErrorKind::Io(e) => write!(f, "{}", e),
             ErrorKind::Invalid(e) => write!(f, "{}", e),
             ErrorKind::Unimplemented(message) => {
                 write!(f, "Unimplemented feature: {}", message)
@@ -115,7 +103,7 @@ impl ErrorKind {
 }
 
 /// An InvalidErrorKind is returned when the data is invalid.
-#[derive(Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum InvalidErrorKind {
     /// The data was invalid
     Invalid(String),
@@ -129,5 +117,23 @@ impl Display for InvalidErrorKind {
             InvalidErrorKind::Invalid(message) => write!(f, "Image is invalid: {}", message),
             InvalidErrorKind::Checksum => write!(f, "Image has an invalid checksum"),
         }
+    }
+}
+
+/// Test the error code
+#[allow(unused_imports)]
+#[cfg(test)]
+pub mod tests {
+    use crate::error::ErrorKind;
+
+    #[test]
+    pub fn error_kind_partial_eq_works() {
+        let ek1 = ErrorKind::new("Test1");
+        let ek2 = ErrorKind::new("Test1");
+        let ek3 = ErrorKind::NotFound(String::from("Test1"));
+
+        assert_eq!(ek1, ek1);
+        assert_eq!(ek1, ek2);
+        assert_ne!(ek1, ek3);
     }
 }

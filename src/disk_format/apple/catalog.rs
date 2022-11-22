@@ -186,7 +186,7 @@ impl<'a> Serializer<'a> for TrackSectorList<'a> {
 pub type TrackSectorLists<'a> = Vec<TrackSectorList<'a>>;
 
 /// Parse a track / sector list.
-pub fn parse_track_sector_list<'a>(i: &'a [u8]) -> IResult<&[u8], TrackSectorList<'a>> {
+pub fn parse_track_sector_list(i: &[u8]) -> IResult<&[u8], TrackSectorList> {
     let mut track_sector_pairs: Vec<TrackSectorPair> = Vec::new();
 
     let (i, reserved) = le_u8(i)?;

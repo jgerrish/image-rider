@@ -435,7 +435,7 @@ pub fn disk_image_data(disk_image: &DiskImage) -> Option<Vec<u8>> {
                     .stx_tracks
                     .iter()
                     .filter(|s| s.sector_data.is_some())
-                    .flat_map(|s| (*s).sector_data.as_ref().unwrap().iter())
+                    .flat_map(|s| s.sector_data.as_ref().unwrap().iter())
                     .flat_map(|bytes| (*bytes).iter())
                     .copied()
                     .collect(),

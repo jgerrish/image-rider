@@ -124,8 +124,8 @@ impl Display for STXSector {
 }
 
 /// Parse all the data after the sector headers, fuzzy mask and track image header.
-pub fn stx_sector_data_parser<'a>(
-    stx_sector_headers: &'a [STXSectorHeader],
+pub fn stx_sector_data_parser(
+    stx_sector_headers: &[STXSectorHeader],
 ) -> impl Fn(&[u8]) -> IResult<&[u8], Vec<&[u8]>> + '_ {
     move |i| {
         let mut all_sector_data = Vec::new();
@@ -263,7 +263,7 @@ impl Display for STXSyncMarker<'_> {
 }
 
 /// Read in the four sync markers at the start of the track image data
-pub fn stx_sync_markers_parser<'a>(i: &'a [u8]) -> IResult<&'a [u8], STXSyncMarker> {
+pub fn stx_sync_markers_parser(i: &[u8]) -> IResult<&[u8], STXSyncMarker> {
     let (i, stx_sync_markers) = take(4_usize)(i)?;
 
     Ok((

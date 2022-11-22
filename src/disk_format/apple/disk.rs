@@ -339,7 +339,7 @@ pub fn format_from_filename_and_data<'a>(
     let filename_extension: Vec<_> = filename.split('.').collect();
     let path = Path::new(&filename);
 
-    let filesize = match fs::metadata(&path) {
+    let filesize = match fs::metadata(path) {
         Ok(metadata) => metadata.len(),
         Err(e) => {
             error!("Couldn't get file metadata: {}", e);
@@ -406,10 +406,7 @@ pub fn apple_140_k_dos_parser(
 }
 
 /// Parse a DOS 3.3 disk volume
-pub fn volume_parser<'a>(
-    guess: AppleDiskGuess<'a>,
-    filesize: u64,
-) -> IResult<&[u8], AppleDisk<'a>> {
+pub fn volume_parser(guess: AppleDiskGuess, filesize: u64) -> IResult<&[u8], AppleDisk> {
     // guess the tracks per disk
     let tracks_per_disk = 35;
 

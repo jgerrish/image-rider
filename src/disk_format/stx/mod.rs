@@ -49,7 +49,7 @@ pub fn crc16_add_byte(crc: u16, byte: u8) -> u16 {
     let mut new_crc = crc;
 
     // exclusive or the shifted byte and the current CRC
-    new_crc ^= ((byte as u16) << 8) as u16;
+    new_crc ^= (byte as u16) << 8;
 
     // Rust for-loop iteration is not inclusive on the end
     for _i in 0..8 {

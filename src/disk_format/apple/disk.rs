@@ -500,9 +500,9 @@ pub fn volume_parser(guess: AppleDiskGuess, filesize: u64) -> IResult<&[u8], App
 }
 
 /// Parse an Apple ][ Disk
-pub fn apple_disk_parser<'a, 'b>(
+pub fn apple_disk_parser<'a>(
     guess: AppleDiskGuess<'a>,
-    config: &'b Config,
+    config: &Config,
 ) -> IResult<&'a [u8], AppleDisk<'a>> {
     let i = guess.data;
 

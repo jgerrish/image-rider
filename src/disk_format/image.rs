@@ -327,10 +327,10 @@ impl DiskImageSaver for DiskImage<'_> {
 }
 
 /// Parses a file given a filename, returning a DiskImage
-pub fn file_parser<'a, 'b>(
+pub fn file_parser<'a>(
     filename: &str,
     data: &'a [u8],
-    config: &'b Config,
+    config: &Config,
 ) -> IResult<&'a [u8], DiskImage<'a>> {
     let guess_image_type = format_from_filename_and_data(filename, data);
 

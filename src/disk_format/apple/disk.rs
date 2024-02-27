@@ -47,6 +47,10 @@ pub enum Format {
     /// Unknown disk format.
     /// We may not have enough information at the current stage to know the format
     /// This is a simple data type so it should be fast to update
+    ///
+    /// There's a design decision here to use an Unknown enum variant
+    /// as opposed to an Option with None.  I don't know if I made the
+    /// right choice.
     Unknown(u64),
     /// Apple DOS (3.2)
     DOS32(u64),
@@ -351,6 +355,11 @@ pub fn format_from_filename_and_data<'a>(
         .to_lowercase()
         .as_str()
     {
+        "do" => Some(AppleDiskGuess::new(
+            Encoding::Plain,
+            Format::DOS33(filesize),
+            data,
+        )),
         "dsk" => Some(AppleDiskGuess::new(
             Encoding::Plain,
             Format::DOS33(filesize),
@@ -370,6 +379,53 @@ pub fn format_from_filename_and_data<'a>(
             Some(AppleDiskGuess::new(Encoding::Nibble, format, data))
         }
         &_ => None,
+    }
+}
+
+/// Try to guess a file format from a magic number in the file
+///
+/// # Arguments
+///
+/// * `data` - A u8 slice containing the entire image data to guess
+///
+/// # Returns
+///   Returns a result with an optional AppleDiskGuess, the meaning of this is:
+///      Returns an Err result if there was an error parsing the data.
+///      Returns an Ok result if the parsing was successful, even if
+///      it's not a known image type.
+///        Returns an Ok result with None if the image type is unknown.
+///        Returns an Ok result with an AppleDiskGuess if it's a known type.
+///
+/// There was a design decision here to return None as opposed to an
+/// Unknown Apple image type.  I don't know if it's the right choice.
+pub fn format_from_data(data: &[u8]) -> core::result::Result<Option<AppleDiskGuess<'_>>, Error> {
+    let filesize: u64 = data.len().try_into().unwrap();
+
+    info!("Reading magic number from file");
+    let (_i, header) = take(0x09_usize)(data)?;
+
+    if header != [0x01, 0xA5, 0x27, 0xC9, 0x09, 0xD0, 0x18, 0xA5, 0x2B] {
+        return Ok(None);
+    }
+    // Check for an Apple II DOS 3.3 header
+    let (i, _junk) = take(0x11000_usize)(data)?;
+    let (i, _reserved) = le_u8(i)?;
+    let (i, track_number_of_first_catalog_sector) = le_u8(i)?;
+    let (i, sector_number_of_first_catalog_sector) = le_u8(i)?;
+    let (_i, release_number_of_dos) = le_u8(i)?;
+
+    if (track_number_of_first_catalog_sector == 0x11)
+        && (sector_number_of_first_catalog_sector == 0x0F)
+        && (release_number_of_dos == 0x03)
+    {
+        info!("Found Apple DOS 3.3 disk");
+        Ok(Some(AppleDiskGuess::new(
+            Encoding::Plain,
+            Format::DOS33(filesize),
+            data,
+        )))
+    } else {
+        Ok(None)
     }
 }
 
@@ -569,8 +625,8 @@ mod tests {
     use config::Config;
 
     use super::{
-        apple_disk_parser, format_from_filename_and_data, parse_volume_table_of_contents,
-        AppleDiskData, AppleDiskGuess, Encoding, Format,
+        apple_disk_parser, format_from_data, format_from_filename_and_data,
+        parse_volume_table_of_contents, AppleDiskData, AppleDiskGuess, Encoding, Format,
     };
 
     const VTOC_DATA: [u8; 256] = [
@@ -594,7 +650,7 @@ mod tests {
         0x00,
     ];
 
-    /// Try testing format_from_filename
+    /// Try testing format_from_filename_and_data
     #[test]
     fn format_from_filename_works() {
         let filename = "testdata/test-disk_format_from_filename_works.dsk";
@@ -630,6 +686,71 @@ mod tests {
         std::fs::remove_file(filename).unwrap_or_else(|e| {
             panic!("Error removing test file: {}", e);
         });
+    }
+
+    /// Try testing format_from_data
+    /// Right now, this only tests for Apple DOS 3.3 disk images using
+    /// magic numbers at the start and in the VTOC
+    #[test]
+    fn format_from_data_works() {
+        let mut data: [u8; 143360] = [0; 143360];
+        let magic_number_start = [0x01, 0xA5, 0x27, 0xC9, 0x09, 0xD0, 0x18, 0xA5, 0x2B];
+        let magic_number_vtoc = [0x11, 0x0F, 0x03];
+
+        data[0..9].copy_from_slice(&magic_number_start);
+        data[0x11001..0x11004].copy_from_slice(&magic_number_vtoc);
+
+        let guess_res = format_from_data(&data);
+        match guess_res {
+            Ok(g) => {
+                if let Some(guess) = g {
+                    assert_eq!(
+                        guess,
+                        AppleDiskGuess::new(Encoding::Plain, Format::DOS33(143360), &data)
+                    );
+                } else {
+                    panic!("Invalid data guess");
+                }
+            }
+            Err(_) => {
+                panic!("Data guess failed");
+            }
+        };
+    }
+
+    /// Try testing format_from_data fails with wrong magic number
+    ///
+    /// Right now, this only tests for Apple DOS 3.3 disk images using
+    /// magic numbers at the start and in the VTOC
+    ///
+    /// This test should fail with invalid VTOC for DOS 3.3
+    ///
+    /// It may need to be changed when other filesystem guesses are
+    /// impelemented, so it will be hopefully be helpful for the next
+    /// maintainer or developer.
+    #[test]
+    fn format_from_data_fails() {
+        let mut data: [u8; 143360] = [0; 143360];
+        let magic_number_start = [0x01, 0xA5, 0x27, 0xC9, 0x09, 0xD0, 0x18, 0xA5, 0x2B];
+
+        data[0..9].copy_from_slice(&magic_number_start);
+
+        let guess_res = format_from_data(&data);
+        match guess_res {
+            Ok(g) => {
+                if let Some(guess) = g {
+                    assert_ne!(
+                        guess,
+                        AppleDiskGuess::new(Encoding::Plain, Format::DOS33(143360), &data)
+                    );
+                } else {
+                    assert_eq!(g, None, "Correct data guess for invalid DOS 3.3 data");
+                }
+            }
+            Err(_) => {
+                panic!("Data guess failed");
+            }
+        };
     }
 
     /// Test parsing a Volume Table of Contents

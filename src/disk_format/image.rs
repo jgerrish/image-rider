@@ -416,6 +416,20 @@ pub fn format_from_filename_and_data<'a>(
     // TODO: format_from_filename should be defined by a trait, and
     // each module should expose a type that implements that trait
     let apple_res = apple::disk::format_from_filename_and_data(filename, data);
+    let apple_res = if apple_res.is_none() {
+        // Try using the magic number to identify the file
+        let res = apple::disk::format_from_data(data);
+        match res {
+            Err(_) => {
+                info!("Couldn't detect disk type");
+                None
+            }
+            Ok(s) => s,
+        }
+    } else {
+        apple_res
+    };
+
     apple_res.map(DiskImageGuess::Apple)
     // match apple_res {
     //     None => None,

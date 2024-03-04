@@ -1,6 +1,6 @@
 [package]
 name = "image-rider"
-version = "0.7.1"
+version = "0.7.2"
 edition = "2021"
 authors = ["Joshua Gerrish <jgerrish@gmail.com>"]
 description = "Disk image and ROM image parser"

@@ -786,10 +786,7 @@ pub fn build_files<'a>(
         let track_sector_lists = file_entry.build_file(tracks)?;
         debug!("Building file: {}", file_entry.filename().unwrap());
         let res = file_entry.get_data(tracks, &track_sector_lists);
-        let data = match res {
-            Err(_e) => Vec::new(),
-            Ok(data) => data,
-        };
+        let data = res.unwrap_or_default();
 
         files.insert(
             file_entry.filename().unwrap(),

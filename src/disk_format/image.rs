@@ -1,6 +1,6 @@
-//! The image_rider::disk_format::image module provides a set of common functions
-//! and trait definitions for reading disks and cartridges.
-use config::Config;
+//! The image_rider::disk_format::image module provides a set of
+//! common functions and trait definitions for reading disks and
+//! cartridges.
 use log::info;
 
 use nom::branch::alt;
@@ -14,12 +14,14 @@ use crate::{
             self,
             disk::{apple_disk_parser, AppleDisk, AppleDiskData, AppleDiskGuess},
         },
-        commodore::d64::{d64_disk_parser, D64Disk, D64DiskGuess},
         stx::disk::{stx_disk_parser, STXDisk, STXDiskGuess},
     },
     error::{Error, ErrorKind, InvalidErrorKind},
     init,
 };
+
+#[cfg(feature = "commodore")]
+use crate::disk_format::commodore::d64::{d64_disk_parser, D64Disk, D64DiskGuess};
 
 /// DiskImage is the primary enumeration for holding disk images.
 ///
@@ -41,6 +43,7 @@ use crate::{
 #[allow(clippy::large_enum_variant)]
 pub enum DiskImage<'a> {
     /// A Commodore 64 D64 Disk Image
+    #[cfg(feature = "commodore")]
     D64(D64Disk<'a>),
     /// An Atari ST STX Disk Image.
     /// Usually the raw data in a STX disk image is a FAT12 filesystem.
@@ -55,11 +58,55 @@ pub enum DiskImage<'a> {
 impl Display for DiskImage<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         match self {
+            #[cfg(feature = "commodore")]
             DiskImage::D64(_) => write!(f, "D64 Disk"),
             DiskImage::STX(_) => write!(f, "STX Disk"),
             DiskImage::Apple(d) => write!(f, "Apple Disk: {}", d),
         }
     }
+}
+
+/// Set of operations for parsed disk images
+/// This includes things like getting the catalog
+pub trait DiskImageOps<'a, 'b> {
+    /// This function lists the contents of the disk
+    /// It simply returns the root directory as a string
+    /// Future versions could provide more structure
+    ///
+    /// # Arguments
+    ///
+    /// - `config` - A Config object that contains information to guide parsing.
+    /// - `filename` - The name of the file to list.
+    ///
+    /// # Returns
+    ///
+    /// A Result containing the Disk contents as a String
+    ///
+    /// # Examples
+    /// ```no_run
+    /// // Start of setup code
+    /// use image_rider::{
+    ///       config::{Config, Configuration},
+    ///       disk_format::image::{DiskImageOps, DiskImageParser},
+    /// };
+    ///
+    /// let filename = "parse_disk_image-tmpfile-1234.img";
+    /// let data: Vec<u8> = Vec::new();
+    /// let settings = config::Config::builder().build().unwrap();
+    /// let config = Config::load(settings).expect("Error loading image rider config");
+    /// // End of the setup code
+    ///
+    /// // The main method call
+    /// let result = data.parse_disk_image(
+    ///     &config,
+    ///     &filename
+    /// );
+    /// let result = result.unwrap().catalog(&config);
+    /// if let Ok(catalog) = result {
+    ///     println!("Successful list of disk contents");
+    /// }
+    /// ```
+    fn catalog(&'a self, config: &'b crate::config::Config) -> std::result::Result<String, Error>;
 }
 
 /// A trait for disk or ROM image parsers
@@ -102,8 +149,9 @@ pub trait DiskImageParser<'a, 'b> {
     /// use std::path::Path;
     /// use std::io::Read;
     /// use std::fs::{File, OpenOptions};
-    /// use config::Config;
+    /// use image_rider::config::{Config, Configuration};
     /// use image_rider::disk_format::image::DiskImageParser;
+    ///
     /// let filename = "parse_disk_image-tmpfile-1234.img";
     /// let path = Path::new(&filename);
     /// let mut file = OpenOptions::new()
@@ -114,11 +162,15 @@ pub trait DiskImageParser<'a, 'b> {
     ///         panic!("Couldn't open file: {}", e);
     ///     });
     /// let data: Vec<u8> = Vec::new();
-    /// let settings = Config::builder().build().unwrap();
+    /// let settings = config::Config::builder().build().unwrap();
+    /// let config = image_rider::config::Config::load(settings).expect("Error loading image rider config");
     /// // End of the setup code
     ///
     /// // The main method call
-    /// let result = data.parse_disk_image(&settings, &filename);
+    /// let result = data.parse_disk_image(
+    ///     &config,
+    ///     &filename
+    /// );
     /// if let Ok(disk_image) = result {
     ///     println!("Successful parse");
     /// }
@@ -131,7 +183,7 @@ pub trait DiskImageParser<'a, 'b> {
     /// ```
     fn parse_disk_image(
         &'a self,
-        config: &'b Config,
+        config: &'a crate::config::Config,
         filename: &str,
     ) -> std::result::Result<DiskImage<'a>, Error>;
 }
@@ -152,7 +204,7 @@ pub trait TestParser<'a, 'b> {
     ///
     fn parse_disk_image(
         self,
-        config: &'b Config,
+        config: &'a crate::config::Config,
         filename: &str,
     ) -> std::result::Result<DiskImage<'a>, Error>;
 }
@@ -183,8 +235,9 @@ pub trait DiskImageSaver {
     /// use std::path::Path;
     /// use std::io::Read;
     /// use std::fs::{File, OpenOptions};
-    /// use config::Config;
+    /// use image_rider::config::{Config, Configuration};
     /// use image_rider::disk_format::image::{DiskImageParser, DiskImageSaver};
+    ///
     /// let filename = "parse_disk_image-tmpfile-1234.img";
     /// let path = Path::new(&filename);
     /// let mut file = OpenOptions::new()
@@ -195,16 +248,20 @@ pub trait DiskImageSaver {
     ///         panic!("Couldn't open file: {}", e);
     ///     });
     /// let data: Vec<u8> = Vec::new();
-    /// let settings = Config::builder().build().unwrap();
+    /// let settings = config::Config::builder().build().unwrap();
+    /// let config = image_rider::config::Config::load(settings).expect("Error loading image rider config");
     /// // End of the setup code
     ///
     /// // The main method call
-    /// let result = data.parse_disk_image(&settings, &filename);
+    /// let result = data.parse_disk_image(
+    ///     &config,
+    ///     &filename
+    /// );
     /// let tmp_out_filename = "parse_disk_image-tmpfile-out-1234.img";
     /// if let Ok(disk_image) = result {
     ///     println!("Successful parse");
     ///     // Save the data
-    ///     disk_image.save_disk_image(&settings, None, tmp_out_filename);
+    ///     disk_image.save_disk_image(&config, None, tmp_out_filename);
     /// }
     ///
     /// // Teardown code
@@ -218,7 +275,7 @@ pub trait DiskImageSaver {
     /// ```
     fn save_disk_image(
         &self,
-        config: &Config,
+        config: &crate::config::Config,
         selected_filename: Option<&str>,
         filename: &str,
     ) -> std::result::Result<(), crate::error::Error>;
@@ -234,6 +291,7 @@ pub trait DiskImageSaver {
 /// the new owner of the image data
 pub enum DiskImageGuess<'a> {
     /// A Commodore D64 Disk Image
+    #[cfg(feature = "commodore")]
     D64(D64DiskGuess<'a>),
     /// An Atari ST STX Disk Image
     STX(STXDiskGuess<'a>),
@@ -245,6 +303,7 @@ pub enum DiskImageGuess<'a> {
 impl<'a> Display for DiskImageGuess<'a> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         match self {
+            #[cfg(feature = "commodore")]
             DiskImageGuess::D64(_) => write!(f, "D64 Disk"),
             DiskImageGuess::STX(_) => write!(f, "STX Disk"),
             DiskImageGuess::Apple(d) => write!(f, "Apple Disk: {}", d),
@@ -257,13 +316,16 @@ impl<'a> Display for DiskImageGuess<'a> {
 impl<'a, 'b> TestParser<'a, 'b> for DiskImageGuess<'a> {
     fn parse_disk_image(
         self,
-        config: &'b Config,
+        config: &'a crate::config::Config,
         _filename: &str,
     ) -> std::result::Result<DiskImage<'a>, crate::error::Error> {
         // Initialize the image-rider module
         init();
 
+        // TODO: This could be simplified
+        // TODO: So much work to do.
         match self {
+            #[cfg(feature = "commodore")]
             DiskImageGuess::D64(_) => Err(Error::new(ErrorKind::Unimplemented(String::from(
                 "Error parsing image from guess",
             )))),
@@ -286,7 +348,7 @@ impl<'a, 'b> TestParser<'a, 'b> for DiskImageGuess<'a> {
 impl DiskImageSaver for DiskImage<'_> {
     fn save_disk_image(
         &self,
-        config: &Config,
+        config: &crate::config::Config,
         selected_filename: Option<&str>,
         filename: &str,
     ) -> std::result::Result<(), crate::error::Error> {
@@ -314,6 +376,34 @@ impl DiskImageSaver for DiskImage<'_> {
                     ))
                 }
             },
+            #[cfg(feature = "commodore")]
+            _ => {
+                info!("Unsupported image for file saving");
+                Err(crate::error::Error::new(
+                    crate::error::ErrorKind::Unimplemented(String::from(
+                        "Saving unknown disk images not implemented\n",
+                    )),
+                ))
+            }
+        }
+    }
+}
+
+impl<'a, 'b> DiskImageOps<'a, 'b> for DiskImage<'a> {
+    fn catalog(
+        &'a self,
+        #[cfg(feature = "commodore")] config: &'b crate::config::Config,
+        #[cfg(not(feature = "commodore"))] _config: &'b crate::config::Config,
+    ) -> std::result::Result<String, crate::error::Error> {
+        match self {
+            // DiskImage::Apple(apple_image) => {
+            // 	apple_image.catalog(config)
+            // },
+            #[cfg(feature = "commodore")]
+            DiskImage::D64(d64_image) => d64_image.catalog(config),
+            // DiskImage::STX(image_data) => {
+            //     image_data.catalog(config)
+            // }
             _ => {
                 info!("Unsupported image for file saving");
                 Err(crate::error::Error::new(
@@ -330,13 +420,13 @@ impl DiskImageSaver for DiskImage<'_> {
 pub fn file_parser<'a>(
     filename: &str,
     data: &'a [u8],
-    config: &Config,
+    config: &'a crate::config::Config,
 ) -> IResult<&'a [u8], DiskImage<'a>> {
     let guess_image_type = format_from_filename_and_data(filename, data);
 
     info!(
         "config ignore-checksums: {:?}",
-        config.get_bool("ignore-checksums")
+        config.settings.get_bool("ignore-checksums")
     );
 
     match guess_image_type {
@@ -352,19 +442,26 @@ pub fn file_parser<'a>(
             }
             _ => panic!("Exiting"),
         },
-        None => disk_image_parser(data),
+        None => disk_image_parser(config)(data),
     }
 }
 
 /// Parse a disk image
 /// This attempts to parse the different file types supported by this library
 /// It returns the remaining input and a DiskImage
-pub fn disk_image_parser(i: &[u8]) -> IResult<&[u8], DiskImage> {
-    // Assume the alt parser is greedy and checks the next parser on the first error
-    alt((
-        map(d64_disk_parser, DiskImage::D64),
-        map(stx_disk_parser, DiskImage::STX),
-    ))(i)
+pub fn disk_image_parser<'a>(
+    #[cfg(feature = "commodore")] config: &'a crate::config::Config,
+    #[cfg(not(feature = "commodore"))] _config: &'a crate::config::Config,
+) -> impl Fn(&'a [u8]) -> IResult<&[u8], DiskImage<'a>> {
+    move |i| {
+        // Assume the alt parser is greedy and checks the next parser
+        // on the first error
+        alt((
+            #[cfg(feature = "commodore")]
+            map(d64_disk_parser(config), DiskImage::D64),
+            map(stx_disk_parser, DiskImage::STX),
+        ))(i)
+    }
 }
 
 /// Implementation of DiskImageParser for references to 8-bit integer arrays
@@ -379,10 +476,12 @@ pub fn disk_image_parser(i: &[u8]) -> IResult<&[u8], DiskImage> {
 // }
 
 /// Implementation of DiskImageParser for 8-bit integer vectors
+/// TODO: parse_disk_image should be a trait function for DiskImageGuess types
+/// TODO: catalog should be a trait function for DiskImage types
 impl<'a, 'b> DiskImageParser<'a, 'b> for Vec<u8> {
     fn parse_disk_image(
         &'a self,
-        config: &'b Config,
+        config: &'a crate::config::Config,
         filename: &str,
     ) -> std::result::Result<DiskImage<'a>, Error> {
         // Initialize the image-rider module
@@ -396,6 +495,26 @@ impl<'a, 'b> DiskImageParser<'a, 'b> for Vec<u8> {
             )))),
         }
     }
+
+    // // This is inefficient and the API should be reconsidered
+    // fn catalog(
+    //     &'a self,
+    //     config: &'b Config,
+    // ) -> std::result::Result<String, Error> {
+    //     // Initialize the image-rider module
+    //     init();
+
+    //     let result = file_parser(filename, self, config);
+    //     // let result = file_parser(filename, self, config);
+    // 	// let result = Err("Unimplemented catalog for Vec<u8>");
+    // 	Err(Error::new(ErrorKind::Invalid(InvalidErrorKind::Invalid(String::from("Unimplemented catalog for Vec<u8>")))))
+    //     // match result {
+    //     //     Ok(res) => Ok(res.1),
+    //     //     Err(e) => Err(Error::new(ErrorKind::Invalid(InvalidErrorKind::Invalid(
+    //     //         nom::Err::Error(e).to_string(),
+    //     //     )))),
+    //     // }
+    // }
 }
 
 /// Guess an image format from a filename.  Builds and returns a
@@ -413,6 +532,8 @@ pub fn format_from_filename_and_data<'a>(
     filename: &str,
     data: &'a [u8],
 ) -> Option<DiskImageGuess<'a>> {
+    info!("Guessing image format from filename and data");
+
     // TODO: format_from_filename should be defined by a trait, and
     // each module should expose a type that implements that trait
     let apple_res = apple::disk::format_from_filename_and_data(filename, data);

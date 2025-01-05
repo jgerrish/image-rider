@@ -11,6 +11,7 @@ pub mod sanity_check;
 pub mod image;
 
 /// Commodore disk images
+#[cfg(feature = "commodore")]
 pub mod commodore;
 
 /// STX disk images

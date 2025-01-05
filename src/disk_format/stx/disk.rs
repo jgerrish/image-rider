@@ -1,5 +1,3 @@
-use config::Config;
-
 use log::{debug, error, info};
 
 use std::fs::File;
@@ -12,6 +10,7 @@ use nom::IResult;
 
 use std::fmt::{Display, Formatter, Result};
 
+use crate::config::Config;
 use crate::disk_format::image::DiskImageSaver;
 use crate::disk_format::stx::track::{stx_tracks_parser, STXTrack};
 use crate::disk_format::stx::SanityCheck;

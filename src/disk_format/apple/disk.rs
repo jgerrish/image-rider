@@ -8,8 +8,6 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use config::Config;
-
 use nom::bytes::complete::take;
 use nom::multi::count;
 use nom::number::complete::{le_i8, le_u16, le_u8};
@@ -17,9 +15,10 @@ use nom::{Err, IResult};
 
 use std::fmt::{Display, Formatter, Result};
 
+use crate::config::Config;
 use crate::disk_format::apple::catalog::{build_files, parse_catalogs, Files, FullCatalog};
 use crate::disk_format::apple::nibble::{parse_nib_disk, recognize_prologue};
-use crate::disk_format::image::{DiskImage, DiskImageParser, DiskImageSaver};
+use crate::disk_format::image::{DiskImage, DiskImageOps, DiskImageParser, DiskImageSaver};
 use crate::disk_format::sanity_check::SanityCheck;
 use crate::error::{Error, ErrorKind, InvalidErrorKind};
 
@@ -602,7 +601,7 @@ pub fn apple_disk_parser<'a>(
 impl<'a, 'b> DiskImageParser<'a, 'b> for AppleDiskGuess<'a> {
     fn parse_disk_image(
         &'a self,
-        config: &'b Config,
+        config: &'a crate::config::Config,
         _filename: &str,
     ) -> std::result::Result<DiskImage<'a>, Error> {
         info!("DiskImageParser Attempting to parse Apple disk");
@@ -616,18 +615,26 @@ impl<'a, 'b> DiskImageParser<'a, 'b> for AppleDiskGuess<'a> {
     }
 }
 
+impl<'a, 'b> DiskImageOps<'a, 'b> for AppleDiskGuess<'a> {
+    fn catalog(&'a self, _config: &'b crate::config::Config) -> std::result::Result<String, Error> {
+        info!("DiskImageParser catalog unimplemented for Apple disk");
+        Err(Error::new(ErrorKind::Invalid(InvalidErrorKind::Invalid(
+            String::from("DiskImageParser catalog unimplemented for Apple disk"),
+        ))))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs::OpenOptions;
     use std::io::Write;
     use std::path::Path;
 
-    use config::Config;
-
     use super::{
         apple_disk_parser, format_from_data, format_from_filename_and_data,
         parse_volume_table_of_contents, AppleDiskData, AppleDiskGuess, Encoding, Format,
     };
+    use crate::config::{Config, Configuration};
 
     const VTOC_DATA: [u8; 256] = [
         0x00, 0x11, 0x0F, 0x03, 0x00, 0x00, 0xFE, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -806,7 +813,7 @@ mod tests {
 
         let guess = AppleDiskGuess::new(Encoding::Plain, Format::DOS33(143360), &data);
 
-        let config = Config::default();
+        let config = Config::load(config::Config::default()).unwrap();
         let res = apple_disk_parser(guess, &config);
 
         match res {
@@ -856,7 +863,7 @@ mod tests {
 
         let guess = AppleDiskGuess::new(Encoding::Plain, Format::DOS33(143360), &data);
 
-        let config = Config::default();
+        let config = Config::load(config::Config::default()).unwrap();
         let res = apple_disk_parser(guess, &config);
 
         match res {

@@ -3,17 +3,17 @@
 //! Parse an image file
 //! Usage: cargo run --example parser --input FILENAME
 //!
-use std::fs::File;
-use std::io::Read;
-use std::path::Path;
-use std::process::exit;
+use std::{fs::File, io::Read, path::Path, process::exit};
 
 use clap::Parser;
 use config::Config;
-use env_logger;
 use log::{error, info};
 
-use image_rider::disk_format::image::{DiskImage, DiskImageParser, DiskImageSaver};
+use image_rider::{
+    config::Configuration,
+    disk_format::image::{DiskImage, DiskImageOps, DiskImageParser, DiskImageSaver},
+    // error::{Error, ErrorKind},
+};
 
 /// Command line arguments to parse an image file
 #[derive(Parser, Debug)]
@@ -22,6 +22,9 @@ struct Args {
     /// Filename to parse
     #[clap(short, long)]
     input: String,
+    /// List the disk contents
+    #[clap(short, long)]
+    catalog: bool,
     /// Filename to select for writing.
     /// Specifying a filename select that file to saving if output is
     /// also specified.
@@ -41,7 +44,7 @@ struct Args {
 pub fn open_file(filename: &str) -> Vec<u8> {
     let path = Path::new(&filename);
 
-    let mut file = match File::open(&path) {
+    let mut file = match File::open(path) {
         Err(why) => panic!("Couldn't open {}: {}", path.display(), why),
         Ok(file) => file,
     };
@@ -90,16 +93,19 @@ fn main() {
     };
 
     // See the comment in the load_settings function about a better solution to this
-    if args.ignore_checksums == true {
+    if args.ignore_checksums {
         #[allow(deprecated)]
         settings
             .set("ignore-checksums", args.ignore_checksums)
             .unwrap();
     }
 
+    let config =
+        image_rider::config::Config::load(settings).expect("Error loading image rider config");
+
     let data = open_file(&args.input);
 
-    let result = data.parse_disk_image(&settings, &args.input);
+    let result = data.parse_disk_image(&config, &args.input);
 
     let image = match result {
         Err(e) => {
@@ -107,18 +113,30 @@ fn main() {
             exit(1);
         }
         Ok(res) => {
+            // List the disk contents or catalog if requested
+            if args.catalog {
+                let catalog_res = res.catalog(&config);
+                match catalog_res {
+                    Err(e) => {
+                        error!("{}", e);
+                        exit(1);
+                    }
+                    Ok(res) => {
+                        println!("Disk catalog: {}", res);
+                        println!("{}", res);
+                    }
+                }
+            }
+
             println!("Disk: {}", res);
             res
         }
     };
 
-    let result = write_file(&settings, &args, &image);
-    match result {
-        Err(e) => {
-            error!("{}", e);
-            exit(1);
-        }
-        Ok(_) => {}
+    let result = write_file(&config, &args, &image);
+    if let Err(e) = result {
+        error!("{}", e);
+        exit(1);
     }
 
     exit(0);
@@ -126,7 +144,7 @@ fn main() {
 
 /// Save a file from the image to disk if the user specifies it.
 fn write_file(
-    settings: &Config,
+    config: &image_rider::config::Config,
     args: &Args,
     image: &DiskImage,
 ) -> std::result::Result<(), image_rider::error::Error> {
@@ -136,10 +154,10 @@ fn write_file(
 
         match &args.filename {
             Some(s) => {
-                image.save_disk_image(&settings, Some(s.as_str()), &output_filename)?;
+                image.save_disk_image(config, Some(s.as_str()), output_filename)?;
             }
             None => {
-                image.save_disk_image(&settings, None, &output_filename)?;
+                image.save_disk_image(config, None, output_filename)?;
             }
         };
         println!("Wrote file");
@@ -150,14 +168,12 @@ fn write_file(
 
 /// load settings from a config file
 /// returns the config settings as a Config on success, or a ConfigError on failure
-fn load_settings<'a>(config_name: &str) -> Result<Config, config::ConfigError> {
-    let builder = Config::builder()
+fn load_settings(config_name: &str) -> Result<Config, config::ConfigError> {
+    Config::builder()
         // Add in config file
         .add_source(config::File::with_name(config_name))
         // Add in settings from the environment (with a prefix of APP)
         // Eg.. `APP_DEBUG=1 ./target/command_bar_widget would set the `debug` key
         .add_source(config::Environment::with_prefix("APP"))
-        .build();
-
-    builder
+        .build()
 }

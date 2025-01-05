@@ -1,6 +1,6 @@
 [package]
 name = "image-rider"
-version = "0.7.3"
+version = "0.8.0"
 edition = "2021"
 authors = ["Joshua Gerrish <jgerrish@gmail.com>"]
 description = "Disk image and ROM image parser"
@@ -20,6 +20,13 @@ config = "0.14"
 # rustc bugs pop up.
 # Just a couple minutes saved.  It's swell.
 clap = { version = "4.4, < 4.5", features = ["derive"] }
+
+# forbidden-bands is a library crate to manipulate PETSCII strings and
+# other legacy 8-bit character sets.  It provides functions to convert
+# between PETSCII and Unicode and to display PETSCII strings.
+# To use it, enable the commodore feature
+forbidden-bands = { version = "0.2", optional = true }
+
 log = "0.4"
 env_logger = "0.11"
 toml = "0.8"
@@ -27,3 +34,9 @@ nom = "7.1"
 
 [dev-dependencies]
 pretty_assertions = "1.4"
+
+[features]
+commodore = ["dep:forbidden-bands"]
+
+[[example]]
+name="parser"

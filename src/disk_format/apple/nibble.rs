@@ -5,7 +5,7 @@ use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
 
-use config::Config;
+use crate::config::Config;
 use log::{debug, error};
 
 use nom::{
@@ -189,7 +189,11 @@ pub fn find_and_parse_address_field(
                 "Address field computed checksum not equal to disk checksum: {} {}",
                 computed_checksum, checksum
             );
-            if !config.get_bool("ignore-checksums").unwrap_or(false) {
+            if !config
+                .settings
+                .get_bool("ignore-checksums")
+                .unwrap_or(false)
+            {
                 panic!(
                     "Address field computed checksum not equal to disk checksum: {} {}",
                     computed_checksum, checksum
@@ -299,7 +303,11 @@ pub fn transform_data_field(config: &Config, data_field: &DataField) -> Sector {
             "Invalid checksum on data: calculated: {}, disk: {}",
             computed_checksum, data_field.checksum
         );
-        if !config.get_bool("ignore-checksums").unwrap_or(false) {
+        if !config
+            .settings
+            .get_bool("ignore-checksums")
+            .unwrap_or(false)
+        {
             panic!(
                 "Invalid checksum on data: calculated: {}, disk: {}",
                 computed_checksum, data_field.checksum
@@ -534,7 +542,7 @@ mod tests {
         parse_nibble_byte_4_and_4, parse_prologue, transform_data_field, DataField,
         NIBBLE_WRITE_TABLE_6_AND_2,
     };
-    use config::Config;
+    use crate::config::{Config, Configuration};
     use pretty_assertions::assert_eq;
 
     /// Test nibble byte 4 and 4 parsing works
@@ -617,7 +625,7 @@ mod tests {
             0xD5, 0xAA, 0x96, 0xFF, 0xFE, 0xAB, 0xBF, 0xAA, 0xAF, 0xFE, 0xEE, 0xDE, 0xAA, 0xEB,
         ];
 
-        let config = Config::default();
+        let config = Config::load(config::Config::default()).unwrap();
         let address_field_result = find_and_parse_address_field(&config)(&address_field_data);
 
         match address_field_result {
@@ -672,7 +680,7 @@ mod tests {
 
         let data_field = build_nibble_sector(&original_data);
 
-        let config = Config::default();
+        let config = Config::load(config::Config::default()).unwrap();
         let sector = transform_data_field(&config, &data_field);
 
         assert_eq!(sector.data, original_data);
@@ -687,7 +695,7 @@ mod tests {
             0xD5, 0xAA, 0x96, 0xFF, 0xFE, 0xAB, 0xBF, 0xAA, 0xAF, 0x00, 0x00, 0xDE, 0xAA, 0xEB,
         ];
 
-        let config = Config::default();
+        let config = Config::load(config::Config::default()).unwrap();
         let address_field_result = find_and_parse_address_field(&config)(&address_field_data);
 
         match address_field_result {

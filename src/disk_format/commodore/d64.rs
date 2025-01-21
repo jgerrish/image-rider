@@ -555,10 +555,10 @@ pub fn d64_file_entry_parser<'a>(
     config: &'a crate::config::Config,
 ) -> impl Fn(&'a [u8]) -> IResult<&[u8], FileEntry> + 'a {
     move |i| {
-        let (i, file_type) = le_u8(i)?;
+        let (i, ft) = le_u8(i)?;
         let file_type = ExtendedFileType {
-            file_status: FileStatus::from(file_type & 0xF0),
-            file_type: FileType::from(file_type & 0x0F),
+            file_status: FileStatus::from(ft),
+            file_type: FileType::from(ft),
         };
 
         let (i, track_of_first_data_block) = le_u8(i)?;
@@ -581,6 +581,8 @@ pub fn d64_file_entry_parser<'a>(
                 file_name,
                 &config.forbidden_bands_config.petscii,
             );
+
+        info!("Name: {}, File type: {:?}", ps, ft);
 
         Ok((
             i,
@@ -627,15 +629,7 @@ pub fn d64_disk_parser<'a>(
     config: &'a crate::config::Config,
 ) -> impl Fn(&'a [u8]) -> IResult<&[u8], D64Disk<'a>> + 'a {
     move |i| {
-        let ptr = i.as_ptr();
-        let i_orig: usize = ptr as usize;
-
         let (i, bam) = d64_block_availability_map_parser(config)(i)?;
-
-        let ptr = i.as_ptr();
-        let i_new: usize = ptr as usize;
-        let diff = i_new - i_orig;
-        debug!("i difference after reading BAM: {diff}");
 
         let (i, directory) = d64_directory_parser(config)(i)?;
 

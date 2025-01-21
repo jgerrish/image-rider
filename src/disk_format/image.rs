@@ -12,16 +12,19 @@ use crate::{
     disk_format::{
         apple::{
             self,
-            disk::{apple_disk_parser, AppleDisk, AppleDiskData, AppleDiskGuess},
+            disk::{AppleDisk, AppleDiskData, AppleDiskGuess},
         },
         stx::disk::{stx_disk_parser, STXDisk, STXDiskGuess},
     },
-    error::{Error, ErrorKind, InvalidErrorKind},
+    error::{Error, ErrorKind},
     init,
 };
 
 #[cfg(feature = "commodore")]
-use crate::disk_format::commodore::d64::{d64_disk_parser, D64Disk, D64DiskGuess};
+use crate::disk_format::commodore::{
+    d64::{d64_disk_parser, D64Disk},
+    disk::CommodoreDiskGuess,
+};
 
 /// DiskImage is the primary enumeration for holding disk images.
 ///
@@ -188,27 +191,6 @@ pub trait DiskImageParser<'a, 'b> {
     ) -> std::result::Result<DiskImage<'a>, Error>;
 }
 
-/// Test trait for getting parsing and ownership transferral working
-/// with DiskImageGuess
-pub trait TestParser<'a, 'b> {
-    /// Parse an entire disk, returning a DiskImage.
-    ///
-    /// # Arguments
-    ///
-    /// - `config` - A Config object that contains information to guide parsing.
-    /// - `filename` - The name of the file to parse.
-    ///
-    /// # Returns
-    ///
-    /// A Result containing the DiskImage or an error message.
-    ///
-    fn parse_disk_image(
-        self,
-        config: &'a crate::config::Config,
-        filename: &str,
-    ) -> std::result::Result<DiskImage<'a>, Error>;
-}
-
 /// This trait provides convenient functions for getting and saving
 /// data for the parsed disk image data in a DiskImage
 pub trait DiskImageSaver {
@@ -289,14 +271,53 @@ pub trait DiskImageSaver {
 /// The DiskImageGuess structures should have a field that contains
 /// the raw image data When A DiskImageGuess is created, it becomes
 /// the new owner of the image data
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DiskImageGuess<'a> {
     /// A Commodore D64 Disk Image
     #[cfg(feature = "commodore")]
-    D64(D64DiskGuess<'a>),
+    Commodore(CommodoreDiskGuess<'a>),
     /// An Atari ST STX Disk Image
     STX(STXDiskGuess<'a>),
     /// An Apple ][ Disk Image
     Apple(AppleDiskGuess<'a>),
+}
+
+/// This trait defines some functions for guessing disk image types
+/// based on heuristics such as filename and magic numbers.
+pub trait DiskImageGuesser<'a, 'b> {
+    /// Guess an image format from a filename.  Builds and returns a
+    /// DiskImageGuess for a given filename and file data.
+    ///
+    /// # Arguments
+    ///
+    /// - `filename` - The name of the file to generate a guess for.
+    /// - `data` - The disk image data as a reference to a byte array.
+    ///
+    /// # Returns
+    ///
+    /// An Option containing the DiskImageGuess if a format was
+    /// identified, or None if none was identified.
+    fn guess(
+        config: &crate::config::Config,
+        filename: &str,
+        data: &'a [u8],
+    ) -> Option<DiskImageGuess<'a>>;
+
+    /// Parse an entire disk, returning a DiskImage.
+    ///
+    /// # Arguments
+    ///
+    /// - `config` - A Config object that contains information to guide parsing.
+    /// - `filename` - The name of the file to parse.
+    ///
+    /// # Returns
+    ///
+    /// A Result containing the DiskImage or an error message.
+    ///
+    fn parse(
+        &'b self,
+        config: &'a crate::config::Config,
+    ) -> std::result::Result<DiskImage<'a>, Error>;
 }
 
 /// Display a DiskImageGuess
@@ -304,7 +325,7 @@ impl<'a> Display for DiskImageGuess<'a> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         match self {
             #[cfg(feature = "commodore")]
-            DiskImageGuess::D64(_) => write!(f, "D64 Disk"),
+            DiskImageGuess::Commodore(_) => write!(f, "Commodore Disk"),
             DiskImageGuess::STX(_) => write!(f, "STX Disk"),
             DiskImageGuess::Apple(d) => write!(f, "Apple Disk: {}", d),
         }
@@ -313,33 +334,26 @@ impl<'a> Display for DiskImageGuess<'a> {
 
 /// Implement a parser for a DiskImageGuess
 /// The intention is that the DiskImage owns the raw data afterwards
-impl<'a, 'b> TestParser<'a, 'b> for DiskImageGuess<'a> {
+impl<'a, 'b> DiskImageParser<'a, 'b> for DiskImageGuess<'a> {
     fn parse_disk_image(
-        self,
+        &'a self,
         config: &'a crate::config::Config,
         _filename: &str,
     ) -> std::result::Result<DiskImage<'a>, crate::error::Error> {
         // Initialize the image-rider module
         init();
 
-        // TODO: This could be simplified
-        // TODO: So much work to do.
         match self {
             #[cfg(feature = "commodore")]
-            DiskImageGuess::D64(_) => Err(Error::new(ErrorKind::Unimplemented(String::from(
-                "Error parsing image from guess",
-            )))),
+            DiskImageGuess::Commodore(_guess) => Err(Error::new(ErrorKind::Unimplemented(
+                String::from("Error parsing image from guess"),
+            ))),
             DiskImageGuess::STX(_) => Err(Error::new(ErrorKind::Unimplemented(String::from(
                 "Error parsing image from guess",
             )))),
             DiskImageGuess::Apple(guess) => {
-                let parser_result = apple_disk_parser(guess, config);
-                match parser_result {
-                    Ok(res) => Ok(DiskImage::Apple(res.1)),
-                    Err(e) => Err(Error::new(ErrorKind::Invalid(InvalidErrorKind::Invalid(
-                        nom::Err::Error(e).to_string(),
-                    )))),
-                }
+                let res = guess.parse(config);
+                res
             }
         }
     }
@@ -421,8 +435,8 @@ pub fn file_parser<'a>(
     filename: &str,
     data: &'a [u8],
     config: &'a crate::config::Config,
-) -> IResult<&'a [u8], DiskImage<'a>> {
-    let guess_image_type = format_from_filename_and_data(filename, data);
+) -> std::result::Result<DiskImage<'a>, Error> {
+    let guess_image_type = format_from_filename_and_data(config, filename, data);
 
     info!(
         "config ignore-checksums: {:?}",
@@ -437,12 +451,23 @@ pub fn file_parser<'a>(
                 // rewritten to transfer ownership from
                 // the DiskImageGuess to the DiskImage
                 info!("Attempting to parse Apple disk");
-                let res = apple_disk_parser(guess, config)?;
-                Ok((res.0, DiskImage::Apple(res.1)))
+                let res = guess.parse(config);
+                res
             }
+            #[cfg(feature = "commodore")]
+            DiskImageGuess::Commodore(guess) => {
+                info!("Attempting to parse Commodore disk");
+                let res = guess.parse(config);
+                res
+            }
+            // DiskImageGuess::STX(guess) => {
+            // 	info!("Attempting to parse Atari disk");
+            // 	guess.parse(config)
+            // },
+            // None => todo!(),
             _ => panic!("Exiting"),
         },
-        None => disk_image_parser(config)(data),
+        None => todo!(), // disk_image_parser(config)(data),
     }
 }
 
@@ -487,34 +512,8 @@ impl<'a, 'b> DiskImageParser<'a, 'b> for Vec<u8> {
         // Initialize the image-rider module
         init();
 
-        let result = file_parser(filename, self, config);
-        match result {
-            Ok(res) => Ok(res.1),
-            Err(e) => Err(Error::new(ErrorKind::Invalid(InvalidErrorKind::Invalid(
-                nom::Err::Error(e).to_string(),
-            )))),
-        }
+        file_parser(filename, self.as_slice(), config)
     }
-
-    // // This is inefficient and the API should be reconsidered
-    // fn catalog(
-    //     &'a self,
-    //     config: &'b Config,
-    // ) -> std::result::Result<String, Error> {
-    //     // Initialize the image-rider module
-    //     init();
-
-    //     let result = file_parser(filename, self, config);
-    //     // let result = file_parser(filename, self, config);
-    // 	// let result = Err("Unimplemented catalog for Vec<u8>");
-    // 	Err(Error::new(ErrorKind::Invalid(InvalidErrorKind::Invalid(String::from("Unimplemented catalog for Vec<u8>")))))
-    //     // match result {
-    //     //     Ok(res) => Ok(res.1),
-    //     //     Err(e) => Err(Error::new(ErrorKind::Invalid(InvalidErrorKind::Invalid(
-    //     //         nom::Err::Error(e).to_string(),
-    //     //     )))),
-    //     // }
-    // }
 }
 
 /// Guess an image format from a filename.  Builds and returns a
@@ -529,6 +528,7 @@ impl<'a, 'b> DiskImageParser<'a, 'b> for Vec<u8> {
 ///
 /// An Option containing the DiskImageGuess
 pub fn format_from_filename_and_data<'a>(
+    config: &crate::config::Config,
     filename: &str,
     data: &'a [u8],
 ) -> Option<DiskImageGuess<'a>> {
@@ -536,26 +536,23 @@ pub fn format_from_filename_and_data<'a>(
 
     // TODO: format_from_filename should be defined by a trait, and
     // each module should expose a type that implements that trait
-    let apple_res = apple::disk::format_from_filename_and_data(filename, data);
-    let apple_res = if apple_res.is_none() {
-        // Try using the magic number to identify the file
-        let res = apple::disk::format_from_data(data);
-        match res {
-            Err(_) => {
-                info!("Couldn't detect disk type");
-                None
-            }
-            Ok(s) => s,
-        }
-    } else {
-        apple_res
-    };
+    // let apple_res = apple::disk::format_from_filename_and_data(filename, data);
 
-    apple_res.map(DiskImageGuess::Apple)
-    // match apple_res {
-    //     None => None,
-    //     Some(res) => Some(DiskImageGuess::Apple(res)),
-    // }
+    // I'm sure one of the chaining Option methods lets us just find
+    // the "first" Some in a list of calls, but I don't know which
+    // one.
+
+    #[cfg(feature = "commodore")]
+    let commodore_res = CommodoreDiskGuess::guess(config, filename, data);
+
+    #[cfg(feature = "commodore")]
+    if commodore_res.is_some() {
+        return commodore_res;
+    }
+
+    let apple_res = apple::disk::AppleDiskGuess::guess(config, filename, data);
+
+    apple_res
 }
 
 /// Function to collect the actual disk image data from a disk image and return
@@ -592,6 +589,7 @@ mod tests {
     use super::apple::disk::{Encoding, Format};
     use super::AppleDiskGuess;
     use super::{format_from_filename_and_data, DiskImageGuess};
+    use crate::config::{Config, Configuration};
 
     /// Test collecting heuristics on disk image type
     #[test]
@@ -617,7 +615,9 @@ mod tests {
             panic!("Couldn't flush file stream: {}", e);
         });
 
-        let guess = format_from_filename_and_data(filename, &data).unwrap_or_else(|| {
+        let config = Config::load(config::Config::default()).unwrap();
+
+        let guess = format_from_filename_and_data(&config, filename, &data).unwrap_or_else(|| {
             panic!("Invalid filename guess");
         });
 

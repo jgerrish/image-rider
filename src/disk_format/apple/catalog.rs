@@ -70,7 +70,7 @@ pub struct FileEntry<'a> {
     /// Whether the file is locked
     pub locked: bool,
 
-    /// The file name, bytes 03-20
+    /// The file name, bytes 0x03-0x20 (30 bytes)
     pub file_name: &'a [u8],
 
     /// The file length in number of sectors
@@ -552,6 +552,7 @@ pub fn parse_file_entry(i: &[u8]) -> IResult<&[u8], FileEntry> {
         40 => FileType::BType,
         _ => FileType::Unknown,
     };
+
     let (i, filename) = take(30_usize)(i)?;
     let (i, file_length_in_sectors) = le_u16(i)?;
 

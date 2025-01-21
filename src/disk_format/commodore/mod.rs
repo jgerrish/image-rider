@@ -9,3 +9,7 @@
 
 /// Disk-level functions and data structures for D64 disks.
 pub mod d64;
+
+/// DiskImageGuess trait implementation heuristics for guessing the
+/// format of a disk and DiskImage trait implementations
+pub mod disk;

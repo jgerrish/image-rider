@@ -1,13 +1,18 @@
 //! Error results that can occur working with images
 #![warn(missing_docs)]
 #![warn(unsafe_code)]
-use std::fmt::{Debug, Display, Formatter, Result};
+use std::{
+    fmt::{Debug, Display, Formatter, Result},
+    io,
+};
 
 /// An error that can occur when processing an image, ROM or other
 /// file.
-#[derive(Eq, PartialEq)]
 pub struct Error {
     kind: ErrorKind,
+    // reqwest (0.12.12) has a fairly good Error implementation
+    // showing how to do source with boxes.
+    // source: String,
 }
 
 impl Debug for Error {
@@ -22,7 +27,14 @@ impl Display for Error {
     }
 }
 
-impl std::error::Error for Error {}
+impl std::error::Error for Error {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self.kind {
+            ErrorKind::IO(ref io) => Some(io),
+            _ => None,
+        }
+    }
+}
 
 impl Error {
     /// Create a new Error with a given ErrorKind variant
@@ -55,13 +67,13 @@ impl<'a> nom::error::ParseError<&'a [u8]> for Error {
 
 impl From<std::io::Error> for Error {
     fn from(e: std::io::Error) -> Self {
-        Error::new(ErrorKind::new(&e.to_string()))
+        Error::new(ErrorKind::IO(e))
     }
 }
 
 /// The kinds of errors that can occur when processing an image, ROM
 /// or other file.
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug)]
 pub enum ErrorKind {
     /// Generic error type
     Message(String),
@@ -78,6 +90,11 @@ pub enum ErrorKind {
     /// when attempting to extract a specific file from a file, or
     /// when attempting to extract a certain sector or other item.
     NotFound(String),
+
+    /// An IO based error
+    // goblin (0.8.2) has an implementation using Error enums to store
+    // the source error
+    IO(io::Error),
 }
 
 impl Display for ErrorKind {
@@ -90,6 +107,9 @@ impl Display for ErrorKind {
             }
             ErrorKind::NotFound(message) => {
                 write!(f, "Data not found: {}", message)
+            }
+            ErrorKind::IO(io) => {
+                write!(f, "IO error: {}", io)
             }
         }
     }
@@ -127,13 +147,17 @@ pub mod tests {
     use crate::error::ErrorKind;
 
     #[test]
-    pub fn error_kind_partial_eq_works() {
+    pub fn error_kind_new_works() {
         let ek1 = ErrorKind::new("Test1");
         let ek2 = ErrorKind::new("Test1");
-        let ek3 = ErrorKind::NotFound(String::from("Test1"));
 
-        assert_eq!(ek1, ek1);
-        assert_eq!(ek1, ek2);
-        assert_ne!(ek1, ek3);
+        matches!(ek1, ErrorKind::Message(x) if x == "Test1");
+        matches!(ek2, ErrorKind::Message(x) if x == "Test1");
+    }
+
+    #[test]
+    pub fn error_kind_not_found_works() {
+        let ek = ErrorKind::NotFound(String::from("Test1"));
+        matches!(ek, ErrorKind::NotFound(x) if x == "Test1");
     }
 }

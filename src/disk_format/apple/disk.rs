@@ -431,7 +431,7 @@ impl<'a, 'b> DiskImageGuesser<'a, 'b> for AppleDiskGuess<'a> {
 ///
 /// There was a design decision here to return None as opposed to an
 /// Unknown Apple image type.  I don't know if it's the right choice.
-pub fn format_from_data(data: &[u8]) -> core::result::Result<Option<DiskImageGuess>, Error> {
+pub fn format_from_data(data: &[u8]) -> std::result::Result<Option<DiskImageGuess>, Error> {
     let filesize: u64 = data.len().try_into().unwrap();
 
     info!("Reading magic number from file");

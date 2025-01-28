@@ -3,7 +3,7 @@
 //! Parse an image file
 //! Usage: cargo run --example parser --input FILENAME
 //!
-use std::{fs::File, io::Read, path::Path, process::exit};
+use std::process::exit;
 
 use clap::Parser;
 use config::Config;
@@ -12,7 +12,7 @@ use log::{error, info};
 use image_rider::{
     config::Configuration,
     disk_format::image::{DiskImage, DiskImageOps, DiskImageParser, DiskImageSaver},
-    // error::{Error, ErrorKind},
+    file::read_file,
 };
 
 /// Command line arguments to parse an image file
@@ -37,31 +37,6 @@ struct Args {
     /// Ignore any failed checksums on the disk data.
     #[clap(long)]
     ignore_checksums: bool,
-}
-
-/// Open up a file and read in the data
-/// Returns all the data as a u8 vector
-pub fn open_file(filename: &str) -> Vec<u8> {
-    let path = Path::new(&filename);
-
-    let mut file = match File::open(path) {
-        Err(why) => panic!("Couldn't open {}: {}", path.display(), why),
-        Ok(file) => file,
-    };
-
-    let mut data = Vec::<u8>::new();
-
-    let result = file.read_to_end(&mut data);
-
-    match result {
-        Err(why) => {
-            error!("Error reading file: {}", why);
-            panic!("Error reading file: {}", why);
-        }
-        Ok(result) => info!("Read {}: {} bytes", path.display(), result),
-    };
-
-    data
 }
 
 /// Parse an image file
@@ -103,7 +78,14 @@ fn main() {
     let config =
         image_rider::config::Config::load(settings).expect("Error loading image rider config");
 
-    let data = open_file(&args.input);
+    let res = read_file(&args.input);
+    let data = match res {
+        Err(e) => {
+            error!("Error opening file: {}", e);
+            panic!("Error opening file: {}", e);
+        }
+        Ok(data) => data,
+    };
 
     let result = data.parse_disk_image(&config, &args.input);
 

@@ -13,6 +13,7 @@ use log::error;
 pub mod config;
 pub mod disk_format;
 pub mod error;
+pub mod file;
 pub mod serialize;
 
 /// Initialize the module.

@@ -93,7 +93,7 @@ pub trait DiskImageOps<'a, 'b> {
     ///       disk_format::image::{DiskImageOps, DiskImageParser},
     /// };
     ///
-    /// let filename = "parse_disk_image-tmpfile-1234.img";
+    /// let filename = "parse_disk_image-tmpfile-disk_image_ops-catalog.img";
     /// let data: Vec<u8> = Vec::new();
     /// let settings = config::Config::builder().build().unwrap();
     /// let config = Config::load(settings).expect("Error loading image rider config");
@@ -155,7 +155,7 @@ pub trait DiskImageParser<'a, 'b> {
     /// use image_rider::config::{Config, Configuration};
     /// use image_rider::disk_format::image::DiskImageParser;
     ///
-    /// let filename = "parse_disk_image-tmpfile-1234.img";
+    /// let filename = "parse_disk_image-tmpfile-disk_image_parser-parse_disk_image.img";
     /// let path = Path::new(&filename);
     /// let mut file = OpenOptions::new()
     ///     .create(true)
@@ -220,7 +220,7 @@ pub trait DiskImageSaver {
     /// use image_rider::config::{Config, Configuration};
     /// use image_rider::disk_format::image::{DiskImageParser, DiskImageSaver};
     ///
-    /// let filename = "parse_disk_image-tmpfile-1234.img";
+    /// let filename = "parse_disk_image-tmpfile-disk_image_saver-save_disk_image.img";
     /// let path = Path::new(&filename);
     /// let mut file = OpenOptions::new()
     ///     .create(true)
@@ -239,7 +239,7 @@ pub trait DiskImageSaver {
     ///     &config,
     ///     &filename
     /// );
-    /// let tmp_out_filename = "parse_disk_image-tmpfile-out-1234.img";
+    /// let tmp_out_filename = "parse_disk_image-tmpfile-out-disk_image_saver-save_disk_image-tmp_out.img";
     /// if let Ok(disk_image) = result {
     ///     println!("Successful parse");
     ///     // Save the data
@@ -285,8 +285,9 @@ pub enum DiskImageGuess<'a> {
 /// This trait defines some functions for guessing disk image types
 /// based on heuristics such as filename and magic numbers.
 pub trait DiskImageGuesser<'a, 'b> {
-    /// Guess an image format from a filename.  Builds and returns a
-    /// DiskImageGuess for a given filename and file data.
+    /// Guess an image format from a filename and file data.  Builds
+    /// and returns a DiskImageGuess for a given filename and file
+    /// data.
     ///
     /// # Arguments
     ///

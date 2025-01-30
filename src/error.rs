@@ -146,6 +146,7 @@ impl Display for InvalidErrorKind {
 pub mod tests {
     use crate::error::ErrorKind;
 
+    /// Test that creating an ErrorKind with new works
     #[test]
     pub fn error_kind_new_works() {
         let ek1 = ErrorKind::new("Test1");
@@ -155,6 +156,7 @@ pub mod tests {
         matches!(ek2, ErrorKind::Message(x) if x == "Test1");
     }
 
+    /// Test that creating an ErrorKind::NotFound works
     #[test]
     pub fn error_kind_not_found_works() {
         let ek = ErrorKind::NotFound(String::from("Test1"));

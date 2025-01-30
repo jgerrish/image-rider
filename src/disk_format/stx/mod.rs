@@ -27,8 +27,8 @@
 //! [Pasti-documentation.pdf](http://info-coach.fr/atari/documents/_mydoc/Pasti-documentation.pdf)\
 //!   Pasti File Documentation Jean Louis-Guérin\
 //!
-#[warn(missing_docs)]
-#[warn(unsafe_code)]
+#![warn(missing_docs)]
+#![warn(unsafe_code)]
 
 /// STX disk image module
 pub mod disk;

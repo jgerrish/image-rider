@@ -194,12 +194,12 @@ pub trait DiskImageParser<'a, 'b> {
 /// This trait provides convenient functions for getting and saving
 /// data for the parsed disk image data in a DiskImage
 pub trait DiskImageSaver {
-    /// Return the primary data contents of a disk image
-    /// The meaning of the data contents will differ between image formats, but
-    /// it's usually all the volume, track, and sector data, or the enclosed file format
-    /// if the outer image is a wrapper
+    // /// Return the primary data contents of a disk image
+    // /// The meaning of the data contents will differ between image formats, but
+    // /// it's usually all the volume, track, and sector data, or the enclosed file format
+    // /// if the outer image is a wrapper
     // fn disk_image_data(&self, config: &Config) -> Vec<&[u8]>;
-
+    //
     /// Save the primary data contents of a disk image to disk
     /// The meaning of the data contents will differ between image formats, but
     /// it's usually all the volume, track, and sector data, or the enclosed file format
@@ -322,7 +322,7 @@ pub trait DiskImageGuesser<'a, 'b> {
 }
 
 /// Display a DiskImageGuess
-impl<'a> Display for DiskImageGuess<'a> {
+impl Display for DiskImageGuess<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         match self {
             #[cfg(feature = "commodore")]
@@ -335,7 +335,7 @@ impl<'a> Display for DiskImageGuess<'a> {
 
 /// Implement a parser for a DiskImageGuess
 /// The intention is that the DiskImage owns the raw data afterwards
-impl<'a, 'b> DiskImageParser<'a, 'b> for DiskImageGuess<'a> {
+impl<'a> DiskImageParser<'a, '_> for DiskImageGuess<'a> {
     fn parse_disk_image(
         &'a self,
         config: &'a crate::config::Config,
@@ -478,7 +478,7 @@ pub fn file_parser<'a>(
 pub fn disk_image_parser<'a>(
     #[cfg(feature = "commodore")] config: &'a crate::config::Config,
     #[cfg(not(feature = "commodore"))] _config: &'a crate::config::Config,
-) -> impl Fn(&'a [u8]) -> IResult<&[u8], DiskImage<'a>> {
+) -> impl Fn(&'a [u8]) -> IResult<&'a [u8], DiskImage<'a>> {
     move |i| {
         // Assume the alt parser is greedy and checks the next parser
         // on the first error
@@ -490,7 +490,7 @@ pub fn disk_image_parser<'a>(
     }
 }
 
-/// Implementation of DiskImageParser for references to 8-bit integer arrays
+// /// Implementation of DiskImageParser for references to 8-bit integer arrays
 // impl<'a, 'b> DiskImageParser<'a, 'b> for &[u8] {
 //     fn parse_disk_image(
 //         self,
@@ -500,11 +500,10 @@ pub fn disk_image_parser<'a>(
 //         file_parser(filename, self, config)
 //     }
 // }
-
 /// Implementation of DiskImageParser for 8-bit integer vectors
 /// TODO: parse_disk_image should be a trait function for DiskImageGuess types
 /// TODO: catalog should be a trait function for DiskImage types
-impl<'a, 'b> DiskImageParser<'a, 'b> for Vec<u8> {
+impl<'a> DiskImageParser<'a, '_> for Vec<u8> {
     fn parse_disk_image(
         &'a self,
         config: &'a crate::config::Config,

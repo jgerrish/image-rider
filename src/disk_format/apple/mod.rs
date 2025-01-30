@@ -9,8 +9,8 @@
 //!
 //! If the file has a nib extension, it's likely a Nibble format disk
 //!
-#[warn(missing_docs)]
-#[warn(unsafe_code)]
+#![warn(missing_docs)]
+#![warn(unsafe_code)]
 
 /// Disk-level functions and data structures for Apple disks.
 pub mod disk;

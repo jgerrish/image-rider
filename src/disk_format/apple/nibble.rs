@@ -39,7 +39,7 @@ use crate::disk_format::image::DiskImageSaver;
 pub enum Format {
     /// Four and four splits each data byte into two disk bytes,
     /// containing the odd and even bits.
-
+    ///
     /// b_7 b_6 b_5 b_4 b_3 b_2 b_1 b_0 -> 1 . . . b_7 b_5 b_3 b_1,
     ///                                    1 . . . b_6 b_4 b_2 b_0
     /// Used in earlier versions of DOS before DOS 3

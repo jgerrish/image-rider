@@ -1,5 +1,5 @@
 //! Disk-level functions and data structures for Apple disks.
-use log::{debug, error, info, warn};
+use log::{debug, error, info};
 
 use std::{
     cmp::min,
@@ -260,7 +260,7 @@ pub enum AppleDiskData<'a> {
     Nibble(NibbleDisk),
 }
 
-impl<'a> DiskImageSaver for AppleDOSDisk<'a> {
+impl DiskImageSaver for AppleDOSDisk<'_> {
     fn save_disk_image(
         &self,
         _config: &Config,
@@ -619,17 +619,17 @@ pub fn apple_disk_parser<'a>(
             debug!("Parsing as nibble format");
             let (_i, disk) = parse_nib_disk(config)(guess.data)?;
 
-            return Ok(AppleDisk {
+            Ok(AppleDisk {
                 encoding: guess.encoding,
                 format: guess.format,
                 data: AppleDiskData::Nibble(disk),
-            });
+            })
         }
     }
 }
 
 /// DiskImageParser implementation for AppleDiskGuess
-impl<'a, 'b> DiskImageParser<'a, 'b> for AppleDiskGuess<'a> {
+impl<'a> DiskImageParser<'a, '_> for AppleDiskGuess<'a> {
     fn parse_disk_image(
         &'a self,
         config: &'a crate::config::Config,

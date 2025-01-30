@@ -221,7 +221,7 @@ pub fn stx_sector_header_parser(i: &[u8]) -> IResult<&[u8], STXSectorHeader> {
     Ok((i, sector_header))
 }
 
-/// Parses the sector header and the sector data
+// /// Parses the sector header and the sector data
 // pub fn stx_sector_parser(
 //     _fuzzy_size: u32,
 //     _flags: u16,

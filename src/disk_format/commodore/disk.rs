@@ -44,7 +44,7 @@ impl<'a> CommodoreDiskGuess<'a> {
     /// Return a new CommodoreDiskGuess with some default parameters
     /// that can't be easily guessed from basic heuristics like
     /// filename
-    pub fn new(format: Format, data: &'a [u8]) -> CommodoreDiskGuess {
+    pub fn new(format: Format, data: &'a [u8]) -> CommodoreDiskGuess<'a> {
         CommodoreDiskGuess { format, data }
     }
 }

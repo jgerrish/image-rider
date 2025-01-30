@@ -415,8 +415,8 @@ pub struct FileEntry<'a> {
     /// (0xA0).  These spaces are not displayed normally.
     pub file_name: FileName<'a>,
 
-    /// Relative file entry fields
-
+    // Relative file entry fields
+    //
     /// The track of the first set of side sector blocks
     pub track_of_first_side_sector_block: u8,
     /// The sector of the first set of side sector blocks
@@ -500,7 +500,7 @@ impl SanityCheck for D64BlockAvailabilityMap<'_> {
 /// e.g. it should fail if there is no NOP for a DOS 3.x
 pub fn d64_block_availability_map_parser<'a>(
     config: &'a crate::config::Config,
-) -> impl Fn(&'a [u8]) -> IResult<&[u8], D64BlockAvailabilityMap> + 'a {
+) -> impl Fn(&'a [u8]) -> IResult<&'a [u8], D64BlockAvailabilityMap<'a>> + 'a {
     move |i| {
         // Jump to the BAM
         // 0x16500 is 91392 which is:
@@ -553,7 +553,7 @@ pub fn d64_block_availability_map_parser<'a>(
 pub fn d64_file_entry_parser<'a>(
     //i: &[u8]) -> IResult<&[u8], FileEntry> {
     config: &'a crate::config::Config,
-) -> impl Fn(&'a [u8]) -> IResult<&[u8], FileEntry> + 'a {
+) -> impl Fn(&'a [u8]) -> IResult<&'a [u8], FileEntry<'a>> + 'a {
     move |i| {
         let (i, ft) = le_u8(i)?;
         let file_type = ExtendedFileType {
@@ -606,7 +606,7 @@ pub fn d64_file_entry_parser<'a>(
 /// TODO: Get this parser working as it should
 pub fn d64_directory_parser<'a>(
     config: &'a crate::config::Config,
-) -> impl Fn(&'a [u8]) -> IResult<&[u8], D64DirectoryEntry<'a>> {
+) -> impl Fn(&'a [u8]) -> IResult<&'a [u8], D64DirectoryEntry<'a>> {
     move |i| {
         let (i, track_of_next_directory_block) = le_u8(i)?;
         let (i, sector_of_next_directory_block) = le_u8(i)?;
@@ -627,7 +627,7 @@ pub fn d64_directory_parser<'a>(
 /// Parse a D64 disk image
 pub fn d64_disk_parser<'a>(
     config: &'a crate::config::Config,
-) -> impl Fn(&'a [u8]) -> IResult<&[u8], D64Disk<'a>> + 'a {
+) -> impl Fn(&'a [u8]) -> IResult<&'a [u8], D64Disk<'a>> + 'a {
     move |i| {
         let (i, bam) = d64_block_availability_map_parser(config)(i)?;
 
@@ -651,7 +651,7 @@ pub fn d64_disk_parser<'a>(
 // }
 
 // TODO: This should be on D64DiskGuess or DiskGuess
-impl<'a, 'b> DiskImageParser<'a, 'b> for D64Disk<'a> {
+impl<'a> DiskImageParser<'a, '_> for D64Disk<'a> {
     fn parse_disk_image(
         &'a self,
         _config: &'a crate::config::Config,

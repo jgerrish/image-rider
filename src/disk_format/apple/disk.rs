@@ -260,7 +260,7 @@ pub enum AppleDiskData<'a> {
     Nibble(NibbleDisk),
 }
 
-impl<'a> DiskImageSaver for AppleDOSDisk<'a> {
+impl DiskImageSaver for AppleDOSDisk<'_> {
     fn save_disk_image(
         &self,
         _config: &Config,
@@ -629,7 +629,7 @@ pub fn apple_disk_parser<'a>(
 }
 
 /// DiskImageParser implementation for AppleDiskGuess
-impl<'a, 'b> DiskImageParser<'a, 'b> for AppleDiskGuess<'a> {
+impl<'a> DiskImageParser<'a, '_> for AppleDiskGuess<'a> {
     fn parse_disk_image(
         &'a self,
         config: &'a crate::config::Config,

@@ -127,7 +127,7 @@ pub struct TrackSectorList<'a> {
 }
 
 /// Display a FileType as a single character
-impl<'a> Display for TrackSectorList<'a> {
+impl Display for TrackSectorList<'_> {
     fn fmt(&self, f: &mut Formatter) -> Result {
         write!(f, "reserved: {}", self.reserved)?;
         match self.track_number_of_next_sector {
@@ -766,7 +766,7 @@ pub fn parse_catalogs<'a>(
     })
 }
 
-impl<'a> Catalog<'a> {
+impl Catalog<'_> {
     /// Get the file data for a file in the catalog
     pub fn get_file(&self, filename: &str) -> Vec<u8> {
         let _file_entry = self.catalog_by_filename.get(filename).unwrap();

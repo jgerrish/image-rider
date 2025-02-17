@@ -1,4 +1,4 @@
-use log::{debug, error, info};
+use log::{debug, error};
 use nom::bytes::complete::take;
 use nom::combinator::cond;
 use nom::multi::count;
@@ -215,7 +215,7 @@ pub fn stx_track_parser(i: &[u8]) -> IResult<&[u8], STXTrack> {
         }
         // Find out how many sector headers to parse
 
-        info!("Track header: {}", stx_track_header);
+        debug!("Track header: {}", stx_track_header);
         // Parse the STX sector headers
         // The last track has issues parsing in some cases, we hit EOF
         // The last tracks are sometimes flag 0x21 and not 0x61, we need to
@@ -228,7 +228,7 @@ pub fn stx_track_parser(i: &[u8]) -> IResult<&[u8], STXTrack> {
             let stx_sector_headers = stx_sector_headers_result.1;
             let sector_header_iter = stx_sector_headers.iter();
             for header in sector_header_iter {
-                info!("stx_sector_header: {}", header);
+                debug!("stx_sector_header: {}", header);
             }
 
             // Skip past the fuzzy mask record
@@ -245,7 +245,7 @@ pub fn stx_track_parser(i: &[u8]) -> IResult<&[u8], STXTrack> {
             // just read in the track image data
             let stx_track_image_header_result =
                 stx_track_image_header_parser(stx_track_header.flags)(i)?;
-            info!(
+            debug!(
                 "stx_track_image_header: {}",
                 stx_track_image_header_result.1
             );

@@ -194,10 +194,10 @@ pub trait DiskImageParser<'a, 'b> {
 /// This trait provides convenient functions for getting and saving
 /// data for the parsed disk image data in a DiskImage
 pub trait DiskImageSaver {
-    /// Return the primary data contents of a disk image
-    /// The meaning of the data contents will differ between image formats, but
-    /// it's usually all the volume, track, and sector data, or the enclosed file format
-    /// if the outer image is a wrapper
+    // /// Return the primary data contents of a disk image
+    // /// The meaning of the data contents will differ between image formats, but
+    // /// it's usually all the volume, track, and sector data, or the enclosed file format
+    // /// if the outer image is a wrapper
     // fn disk_image_data(&self, config: &Config) -> Vec<&[u8]>;
 
     /// Save the primary data contents of a disk image to disk
@@ -322,7 +322,7 @@ pub trait DiskImageGuesser<'a, 'b> {
 }
 
 /// Display a DiskImageGuess
-impl<'a> Display for DiskImageGuess<'a> {
+impl Display for DiskImageGuess<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         match self {
             #[cfg(feature = "commodore")]
@@ -335,7 +335,7 @@ impl<'a> Display for DiskImageGuess<'a> {
 
 /// Implement a parser for a DiskImageGuess
 /// The intention is that the DiskImage owns the raw data afterwards
-impl<'a, 'b> DiskImageParser<'a, 'b> for DiskImageGuess<'a> {
+impl<'a> DiskImageParser<'a, '_> for DiskImageGuess<'a> {
     fn parse_disk_image(
         &'a self,
         config: &'a crate::config::Config,
@@ -407,8 +407,7 @@ impl DiskImageSaver for DiskImage<'_> {
 impl<'a, 'b> DiskImageOps<'a, 'b> for DiskImage<'a> {
     fn catalog(
         &'a self,
-        #[cfg(feature = "commodore")] config: &'b crate::config::Config,
-        #[cfg(not(feature = "commodore"))] _config: &'b crate::config::Config,
+        config: &'b crate::config::Config,
     ) -> std::result::Result<String, crate::error::Error> {
         match self {
             // DiskImage::Apple(apple_image) => {
@@ -416,9 +415,7 @@ impl<'a, 'b> DiskImageOps<'a, 'b> for DiskImage<'a> {
             // },
             #[cfg(feature = "commodore")]
             DiskImage::D64(d64_image) => d64_image.catalog(config),
-            // DiskImage::STX(image_data) => {
-            //     image_data.catalog(config)
-            // }
+            DiskImage::STX(image_data) => image_data.catalog(config),
             _ => {
                 info!("Unsupported image for file saving");
                 Err(crate::error::Error::new(
@@ -461,12 +458,10 @@ pub fn file_parser<'a>(
                 let res = guess.parse(config);
                 res
             }
-            // DiskImageGuess::STX(guess) => {
-            // 	info!("Attempting to parse Atari disk");
-            // 	guess.parse(config)
-            // },
-            // None => todo!(),
-            _ => panic!("Exiting"),
+            DiskImageGuess::STX(guess) => {
+                info!("Attempting to parse Atari disk");
+                guess.parse(config)
+            }
         },
         None => todo!(), // disk_image_parser(config)(data),
     }
@@ -478,7 +473,7 @@ pub fn file_parser<'a>(
 pub fn disk_image_parser<'a>(
     #[cfg(feature = "commodore")] config: &'a crate::config::Config,
     #[cfg(not(feature = "commodore"))] _config: &'a crate::config::Config,
-) -> impl Fn(&'a [u8]) -> IResult<&[u8], DiskImage<'a>> {
+) -> impl Fn(&'a [u8]) -> IResult<&'a [u8], DiskImage<'a>> {
     move |i| {
         // Assume the alt parser is greedy and checks the next parser
         // on the first error
@@ -490,7 +485,7 @@ pub fn disk_image_parser<'a>(
     }
 }
 
-/// Implementation of DiskImageParser for references to 8-bit integer arrays
+// /// Implementation of DiskImageParser for references to 8-bit integer arrays
 // impl<'a, 'b> DiskImageParser<'a, 'b> for &[u8] {
 //     fn parse_disk_image(
 //         self,
@@ -504,7 +499,7 @@ pub fn disk_image_parser<'a>(
 /// Implementation of DiskImageParser for 8-bit integer vectors
 /// TODO: parse_disk_image should be a trait function for DiskImageGuess types
 /// TODO: catalog should be a trait function for DiskImage types
-impl<'a, 'b> DiskImageParser<'a, 'b> for Vec<u8> {
+impl<'a> DiskImageParser<'a, '_> for Vec<u8> {
     fn parse_disk_image(
         &'a self,
         config: &'a crate::config::Config,
@@ -549,6 +544,11 @@ pub fn format_from_filename_and_data<'a>(
     #[cfg(feature = "commodore")]
     if commodore_res.is_some() {
         return commodore_res;
+    }
+
+    let stx_res = STXDiskGuess::guess(config, filename, data);
+    if stx_res.is_some() {
+        return stx_res;
     }
 
     let apple_res = apple::disk::AppleDiskGuess::guess(config, filename, data);

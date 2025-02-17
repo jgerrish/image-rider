@@ -2,7 +2,7 @@ use log::{debug, error, info};
 
 use std::fs::File;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use nom::bytes::complete::{tag, take};
 use nom::number::complete::{le_u16, le_u8};
@@ -11,9 +11,12 @@ use nom::IResult;
 use std::fmt::{Display, Formatter, Result};
 
 use crate::config::Config;
-use crate::disk_format::image::DiskImageSaver;
+use crate::disk_format::image::{
+    DiskImage, DiskImageGuess, DiskImageGuesser, DiskImageOps, DiskImageParser, DiskImageSaver,
+};
 use crate::disk_format::stx::track::{stx_tracks_parser, STXTrack};
 use crate::disk_format::stx::SanityCheck;
+use crate::error::{Error, ErrorKind, InvalidErrorKind};
 
 /// A STX disk image
 #[derive(Debug)]
@@ -25,6 +28,15 @@ pub struct STXDisk<'a> {
     pub stx_tracks: Vec<STXTrack<'a>>,
 }
 
+impl<'a, 'b> DiskImageOps<'a, 'b> for STXDisk<'a> {
+    fn catalog(&'a self, _config: &'b crate::config::Config) -> std::result::Result<String, Error> {
+        info!("DiskImageOps catalog unimplemented for STX disk");
+        Err(Error::new(ErrorKind::Invalid(InvalidErrorKind::Invalid(
+            String::from("DiskImageOps catalog unimplemented for STX disk"),
+        ))))
+    }
+}
+
 /// Format a STXDisk for display
 impl Display for STXDisk<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
@@ -32,23 +44,44 @@ impl Display for STXDisk<'_> {
     }
 }
 
-// impl DiskImageParser for STXDisk<'_> {
-//     fn parse_disk_image<'a>(
-//         &self,
-//         _config: &Config,
-//         _filename: &str,
-//         data: &'a [u8],
-//     ) -> IResult<&'a [u8], DiskImage<'a>> {
-//         let (i, parse_result) = stx_disk_parser(data)?;
-//         Ok((i, DiskImage::STX(parse_result)))
-//     }
-// }
+impl<'a> DiskImageParser<'a, '_> for STXDiskGuess<'a> {
+    fn parse_disk_image(
+        &'a self,
+        _config: &'a Config,
+        _filename: &str,
+    ) -> std::result::Result<DiskImage<'a>, Error> {
+        let (_, value) = stx_disk_parser(self.data)
+            .map_err(|e| Error::new(crate::error::ErrorKind::Message(e.to_string())))?;
+        Ok(DiskImage::STX(value))
+    }
+}
 
 /// Heuristic guesses for what kind of disk this is
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct STXDiskGuess<'a> {
     /// The raw image data
     pub data: &'a [u8],
+}
+
+impl<'a> DiskImageGuesser<'a, '_> for STXDiskGuess<'a> {
+    fn guess(_config: &Config, filename: &str, data: &'a [u8]) -> Option<DiskImageGuess<'a>> {
+        let path = Path::new(filename);
+        if let Some(ext) = path.extension() {
+            if ext == "stx" {
+                return Some(DiskImageGuess::STX(STXDiskGuess { data }));
+            }
+        }
+        None
+    }
+
+    fn parse(
+        &self,
+        _config: &'a crate::config::Config,
+    ) -> std::result::Result<DiskImage<'a>, Error> {
+        let (_, value) = stx_disk_parser(self.data)
+            .map_err(|e| Error::new(crate::error::ErrorKind::Message(e.to_string())))?;
+        Ok(DiskImage::STX(value))
+    }
 }
 
 impl DiskImageSaver for STXDisk<'_> {
@@ -145,7 +178,7 @@ pub fn stx_disk_parser(i: &[u8]) -> IResult<&[u8], STXDisk> {
         panic!("Invalid data");
     }
 
-    info!("Disk header: {}", stx_disk_header);
+    debug!("Disk header: {}", stx_disk_header);
 
     let (i, tracks) = stx_tracks_parser(stx_disk_header.track_count as usize)(i)?;
 

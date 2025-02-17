@@ -39,4 +39,4 @@ pretty_assertions = "1.4"
 commodore = ["dep:forbidden-bands"]
 
 [[example]]
-name="parser"
+name="image-rider"

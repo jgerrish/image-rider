@@ -1,0 +1,118 @@
+# This GitLab CI script is based on the mortgage calculator example
+# from GitLab:
+# https://gitlab.com/gitlab-da/tutorials/security-and-governance/devsecops/rust/mortgage-calculator.git
+#
+stages:
+  - build
+  - test
+
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "push"
+
+variables:
+  RUST_VERSION: "1.89"
+  CARGO_HOME: "$CI_PROJECT_DIR/.cargo"
+  CARGO_INCREMENTAL: 0
+  DS_MAX_DEPTH: -1
+
+cache:
+  key: $CI_COMMIT_REF_SLUG
+  paths:
+    - .cargo/
+    - target/
+
+include:
+  - template: Jobs/SAST.gitlab-ci.yml
+  - template: Jobs/Dependency-Scanning.latest.gitlab-ci.yml
+  - template: Jobs/SAST-IaC.gitlab-ci.yml
+  - template: Jobs/Secret-Detection.gitlab-ci.yml
+
+.rust-template:
+  image: rust:$RUST_VERSION-slim
+
+.build-template:
+  extends: .rust-template
+  stage: build
+  script:
+    - rustup target add $TARGET
+    - cargo build --release --target $TARGET
+
+build-linux:
+  extends: .build-template
+  variables:
+    TARGET: x86_64-unknown-linux-gnu
+  artifacts:
+    paths:
+      - target/$TARGET/release/image-rider
+    expire_in: 1 week
+  allow_failure: false
+
+build-windows:
+  extends: .build-template
+  variables:
+    TARGET: x86_64-pc-windows-gnu
+  artifacts:
+    paths:
+      - target/$TARGET/release/image-rider
+    expire_in: 1 week
+  allow_failure: true
+
+build-macos:
+  extends: .build-template
+  variables:
+    TARGET: x86_64-apple-darwin
+  artifacts:
+    paths:
+      - target/$TARGET/release/image-rider
+    expire_in: 1 week
+  allow_failure: true
+
+build-documentation:
+  extends: .rust-template
+  stage: build
+  variables:
+    GIT_SUBMODULE_STRATEGY: recursive
+  pages: true
+  script:
+    - cargo doc --no-deps
+    - mv target/doc public
+  artifacts:
+    paths:
+      - public
+  rules:
+    - if: $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH
+  environment:
+    name: documentation
+    url: $CI_PAGES_URL/image_rider/index.html
+  allow_failure: true
+
+test:unit:
+  extends: .rust-template
+  stage: test
+  script:
+    - cargo test --verbose
+
+test:clippy:
+  extends: .rust-template
+  stage: test
+  script:
+    - rustup component add clippy
+    - cargo clippy -- -D warnings
+  allow_failure: true
+
+test:format:
+  extends: .rust-template
+  stage: test
+  script:
+    - rustup component add rustfmt
+    - cargo fmt -- --check
+  allow_failure: true
+
+semgrep-sast:
+  rules:
+    - if: $CI_COMMIT_BRANCH
+      exists:
+        - "**/*.rs"
+  variables:
+    SAST_EXCLUDED_PATHS: ".cargo/**"

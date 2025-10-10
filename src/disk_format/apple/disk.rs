@@ -160,7 +160,7 @@ impl Display for VolumeTableOfContents<'_> {
 }
 
 /// Parse a Volume Table of Contents
-pub fn parse_volume_table_of_contents(i: &[u8]) -> IResult<&[u8], VolumeTableOfContents> {
+pub fn parse_volume_table_of_contents(i: &[u8]) -> IResult<&[u8], VolumeTableOfContents<'_>> {
     let (i, reserved) = le_u8(i)?;
     let (i, track_number_of_first_catalog_sector) = le_u8(i)?;
     let (i, sector_number_of_first_catalog_sector) = le_u8(i)?;
@@ -431,7 +431,7 @@ impl<'a, 'b> DiskImageGuesser<'a, 'b> for AppleDiskGuess<'a> {
 ///
 /// There was a design decision here to return None as opposed to an
 /// Unknown Apple image type.  I don't know if it's the right choice.
-pub fn format_from_data(data: &[u8]) -> std::result::Result<Option<DiskImageGuess>, Error> {
+pub fn format_from_data(data: &[u8]) -> std::result::Result<Option<DiskImageGuess<'_>>, Error> {
     let filesize: u64 = data.len().try_into().unwrap();
 
     info!("Reading magic number from file");
@@ -700,6 +700,7 @@ mod tests {
         let path = Path::new(&filename);
         let mut file = OpenOptions::new()
             .create(true)
+            .truncate(true)
             .write(true)
             .open(path)
             .unwrap_or_else(|e| {
@@ -847,7 +848,7 @@ mod tests {
         data.extend(data_vtoc);
         data.extend(data_suffix);
 
-        std::fs::write(&path, &data).unwrap_or_else(|e| {
+        std::fs::write(path, &data).unwrap_or_else(|e| {
             panic!("Error writing test file: {}", e);
         });
 
@@ -903,7 +904,7 @@ mod tests {
          * saving it to version control */
         let path = Path::new(&filename);
         let data: [u8; 143360] = [0; 143360];
-        std::fs::write(&path, data).unwrap_or_else(|e| {
+        std::fs::write(path, data).unwrap_or_else(|e| {
             panic!("Error writing test file: {}", e);
         });
 

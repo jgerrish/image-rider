@@ -648,7 +648,8 @@ mod tests {
         let mut data: [u8; 342] = [0; 342];
 
         for i in 0..=341 {
-            data[i] = NIBBLE_WRITE_TABLE_6_AND_2[(i % 0x40) as usize];
+            // data[i] = NIBBLE_WRITE_TABLE_6_AND_2[(i % 0x40) as usize];
+            data[i] = NIBBLE_WRITE_TABLE_6_AND_2[i % 0x40];
         }
 
         let data_field = DataField {

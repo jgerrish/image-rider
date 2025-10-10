@@ -556,7 +556,7 @@ pub fn format_from_filename_and_data<'a>(
 }
 
 /// Function to collect the actual disk image data from a disk image and return
-/// it as an Option<Vec<u8>>
+/// it as an `Option<Vec<u8>>`
 /// It should have more tests around the different disk types
 pub fn disk_image_data(disk_image: &DiskImage) -> Option<Vec<u8>> {
     match disk_image {
@@ -601,6 +601,7 @@ mod tests {
         let path = Path::new(&filename);
         let mut file = OpenOptions::new()
             .create(true)
+            .truncate(true)
             .write(true)
             .open(path)
             .unwrap_or_else(|e| {

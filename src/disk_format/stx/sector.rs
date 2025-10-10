@@ -263,7 +263,7 @@ impl Display for STXSyncMarker<'_> {
 }
 
 /// Read in the four sync markers at the start of the track image data
-pub fn stx_sync_markers_parser(i: &[u8]) -> IResult<&[u8], STXSyncMarker> {
+pub fn stx_sync_markers_parser(i: &[u8]) -> IResult<&[u8], STXSyncMarker<'_>> {
     let (i, stx_sync_markers) = take(4_usize)(i)?;
 
     Ok((
@@ -335,9 +335,11 @@ mod tests {
 
         // equivalent to: for i in 0..256 { ... sector_data[i] }
         // for item in sector_data.iter().take(256) {
+        // for i in 0..512 {
+        // boot_sector[i] = (i & 0x00FF) as u8;
 
-        for i in 0..512 {
-            boot_sector[i] = (i & 0x00FF) as u8;
+        for (i, bs_byte) in boot_sector.iter_mut().enumerate() {
+            *bs_byte = (i & 0x00FF) as u8;
         }
 
         let words_result = parse_boot_sector_as_words(&boot_sector);
@@ -372,6 +374,6 @@ mod tests {
 
         let checksum = calculate_boot_sector_sum_from_words(&boot_sector);
 
-        assert_eq!(checksum, true);
+        assert!(checksum);
     }
 }

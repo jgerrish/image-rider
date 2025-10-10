@@ -701,7 +701,7 @@ impl DiskImageSaver for D64Disk<'_> {
 mod tests {
     use super::{
         bam_entry_parser, bam_entry_to_boolean_vector, bitmap_to_chars, d64_file_entry_parser,
-        FileType,
+        BooleanVector, FileType,
     };
     use crate::config::Configuration;
 
@@ -721,29 +721,13 @@ mod tests {
         let bv = bam_entry_to_boolean_vector(&bam_entry.1);
 
         assert_eq!(bv.0.len(), 21);
-        assert_eq!(bv.0[0], true);
-        assert_eq!(bv.0[1], true);
-        assert_eq!(bv.0[2], true);
-        assert_eq!(bv.0[3], false);
-        assert_eq!(bv.0[4], true);
-        assert_eq!(bv.0[5], false);
-        assert_eq!(bv.0[6], true);
-        assert_eq!(bv.0[7], true);
-
-        assert_eq!(bv.0[8], true);
-        assert_eq!(bv.0[9], true);
-        assert_eq!(bv.0[10], true);
-        assert_eq!(bv.0[11], true);
-        assert_eq!(bv.0[12], true);
-        assert_eq!(bv.0[13], false);
-        assert_eq!(bv.0[14], true);
-        assert_eq!(bv.0[15], false);
-
-        assert_eq!(bv.0[16], true);
-        assert_eq!(bv.0[17], true);
-        assert_eq!(bv.0[18], true);
-        assert_eq!(bv.0[19], true);
-        assert_eq!(bv.0[20], true);
+        assert_eq!(
+            bv,
+            BooleanVector(vec![
+                true, true, true, false, true, false, true, true, true, true, true, true, true,
+                false, true, false, true, true, true, true, true
+            ])
+        );
     }
 
     /// Test parsing STX boot sector checksum
@@ -787,10 +771,7 @@ mod tests {
             })
             .1;
 
-        assert_eq!(
-            FileType::from(file_entry.file_type.file_type),
-            FileType::Program
-        );
+        assert_eq!(file_entry.file_type.file_type, FileType::Program);
 
         // assert_eq!(file_entry_program.file_type, 0x82);
     }

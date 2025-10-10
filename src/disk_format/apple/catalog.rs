@@ -186,7 +186,7 @@ impl<'a> Serializer<'a> for TrackSectorList<'a> {
 pub type TrackSectorLists<'a> = Vec<TrackSectorList<'a>>;
 
 /// Parse a track / sector list.
-pub fn parse_track_sector_list(i: &[u8]) -> IResult<&[u8], TrackSectorList> {
+pub fn parse_track_sector_list(i: &[u8]) -> IResult<&[u8], TrackSectorList<'_>> {
     let mut track_sector_pairs: Vec<TrackSectorPair> = Vec::new();
 
     let (i, reserved) = le_u8(i)?;
@@ -315,7 +315,7 @@ impl<'a> FileEntry<'a> {
         locked: bool,
         filename: &str,
         file_length_in_sectors: u16,
-    ) -> FileEntry {
+    ) -> FileEntry<'_> {
         FileEntry {
             track_of_first_track_sector_list_sector,
             sector_of_first_track_sector_list_sector,
@@ -530,7 +530,7 @@ impl Display for FileEntry<'_> {
 }
 
 /// Parse a file entry
-pub fn parse_file_entry(i: &[u8]) -> IResult<&[u8], FileEntry> {
+pub fn parse_file_entry(i: &[u8]) -> IResult<&[u8], FileEntry<'_>> {
     let (i, track_of_first_track_sector_list_sector) = le_u8(i)?;
     let (i, sector_of_first_track_sector_list_sector) = le_u8(i)?;
 
@@ -657,7 +657,7 @@ pub fn valid_file(track_of_first_track_sector_list_sector: u8) -> bool {
 }
 
 /// Parse an Apple ][ DOS disk catalog
-pub fn parse_catalog(i: &[u8]) -> IResult<&[u8], Catalog> {
+pub fn parse_catalog(i: &[u8]) -> IResult<&[u8], Catalog<'_>> {
     let (i, reserved) = le_u8(i)?;
     let (i, track_number_of_next_sector) = le_u8(i)?;
     let (i, sector_number_of_next_sector) = le_u8(i)?;
@@ -1510,8 +1510,7 @@ mod tests {
             track_number: 0x11,
             sector_number: 0x0B,
         };
-        let mut tsps: TrackSectorPairs = Vec::new();
-        tsps.push(tsp);
+        let tsps: TrackSectorPairs = vec![tsp];
 
         let tsl = TrackSectorList {
             reserved: 0,
@@ -1618,9 +1617,7 @@ mod tests {
             track_number: 0x11,
             sector_number: 0x0C,
         };
-        let mut tsps: TrackSectorPairs = Vec::new();
-        tsps.push(tsp1);
-        tsps.push(tsp2);
+        let tsps: TrackSectorPairs = vec![tsp1, tsp2];
 
         let tsl = TrackSectorList {
             reserved: 0,

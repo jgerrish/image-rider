@@ -137,7 +137,7 @@ impl Display for STXDiskHeader<'_> {
 
 /// The track or sector image data can be located in several places, depending on the
 /// fuzzy masks and track flags
-pub fn stx_disk_parser(i: &[u8]) -> IResult<&[u8], STXDisk> {
+pub fn stx_disk_parser(i: &[u8]) -> IResult<&[u8], STXDisk<'_>> {
     let (i, stx_disk_header) = stx_disk_header_parser(i)?;
 
     if !stx_disk_header.check() {
@@ -159,7 +159,7 @@ pub fn stx_disk_parser(i: &[u8]) -> IResult<&[u8], STXDisk> {
 
 // TODO: Verify that this is reading correctly
 /// Parse STX disks
-pub fn stx_disk_header_parser(i: &[u8]) -> IResult<&[u8], STXDiskHeader> {
+pub fn stx_disk_header_parser(i: &[u8]) -> IResult<&[u8], STXDiskHeader<'_>> {
     // will consume bytes if the input begins with "RSY" + 0
     // magic number
     let (i, disk_id) = tag("RSY\0")(i)?;

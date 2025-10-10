@@ -184,7 +184,7 @@ impl Display for STXTrack<'_> {
 /// TODO: Implement full parsing
 /// This currently doesn't parse track data, just the headers
 /// TODO: Simplify this parser
-pub fn stx_track_parser(i: &[u8]) -> IResult<&[u8], STXTrack> {
+pub fn stx_track_parser(i: &[u8]) -> IResult<&[u8], STXTrack<'_>> {
     // Record the starting position so we can figure out how much was missed
     let starting_position = i;
     let stx_track_header_result = stx_track_header_parser(i)?;
@@ -403,7 +403,7 @@ mod tests {
                 assert_eq!(res.record_type, 0x00);
 
                 // Should fail because of the flags
-                assert_eq!(false, res.check());
+                assert!(!res.check());
             }
             Err(e) => panic!("Parsing failed on the STX disk header: {}", e),
         }

@@ -65,11 +65,12 @@ impl DiskImageSaver for STXDisk<'_> {
         let disk_image_data: Vec<u8> = self
             .stx_tracks
             .iter()
-            .filter(|s| s.sector_data.is_some())
-            .flat_map(|s| s.sector_data.as_ref().unwrap().iter())
-            .flat_map(|bytes| (*bytes).iter())
+            .filter_map(|s| s.sector_data.as_deref())
+            .flatten()
             .copied()
-            .collect();
+            .fold(Vec::new(), |mut acc, bytes| {
+                acc.extend_from_slice(bytes); acc
+            });
         info!("Found image data, writing data");
         let filename = PathBuf::from(filename);
         let file_result = File::create(filename);

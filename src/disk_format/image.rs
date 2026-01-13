@@ -407,8 +407,7 @@ impl DiskImageSaver for DiskImage<'_> {
 impl<'a, 'b> DiskImageOps<'a, 'b> for DiskImage<'a> {
     fn catalog(
         &'a self,
-        #[cfg(feature = "commodore")] config: &'b crate::config::Config,
-        #[cfg(not(feature = "commodore"))] _config: &'b crate::config::Config,
+        config: &'b crate::config::Config,
     ) -> std::result::Result<String, crate::error::Error> {
         match self {
             // DiskImage::Apple(apple_image) => {
@@ -416,9 +415,7 @@ impl<'a, 'b> DiskImageOps<'a, 'b> for DiskImage<'a> {
             // },
             #[cfg(feature = "commodore")]
             DiskImage::D64(d64_image) => d64_image.catalog(config),
-            // DiskImage::STX(image_data) => {
-            //     image_data.catalog(config)
-            // }
+            DiskImage::STX(image_data) => image_data.catalog(config),
             _ => {
                 info!("Unsupported image for file saving");
                 Err(crate::error::Error::new(
@@ -461,12 +458,10 @@ pub fn file_parser<'a>(
                 let res = guess.parse(config);
                 res
             }
-            // DiskImageGuess::STX(guess) => {
-            // 	info!("Attempting to parse Atari disk");
-            // 	guess.parse(config)
-            // },
-            // None => todo!(),
-            _ => panic!("Exiting"),
+            DiskImageGuess::STX(guess) => {
+                info!("Attempting to parse Atari disk");
+                guess.parse(config)
+            }
         },
         None => todo!(), // disk_image_parser(config)(data),
     }
@@ -548,6 +543,11 @@ pub fn format_from_filename_and_data<'a>(
     #[cfg(feature = "commodore")]
     if commodore_res.is_some() {
         return commodore_res;
+    }
+
+    let stx_res = STXDiskGuess::guess(config, filename, data);
+    if stx_res.is_some() {
+        return stx_res;
     }
 
     let apple_res = apple::disk::AppleDiskGuess::guess(config, filename, data);

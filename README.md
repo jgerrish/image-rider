@@ -18,12 +18,12 @@ STX: An Atari ST STX Disk Image
 
 You can run the example application with the following command:
 
-RUST_LOG=debug cargo run --example parser -- --input FILENAME
+RUST_LOG=debug cargo run --example image-rider -- --input FILENAME
 
 To save track or sector image data (for example, the FAT filesystem
 embedded in a STX image):
 
-RUST_LOG=debug cargo run --example parser -- --input INFILENAME --output OUTFILENAME
+RUST_LOG=debug cargo run --example image-rider -- --input INFILENAME --output OUTFILENAME
 
 
 There are several sanity checks in the code to panic or exit the
@@ -34,7 +34,13 @@ parsing failures.
 To disable checksum checks, pass the --ignore-checksums command line
 flag to the parser example:
 
-RUST_LOG=debug cargo run --example parser -- --ignore-checksums --input FILENAME
+RUST_LOG=debug cargo run --example image-rider -- --ignore-checksums --input FILENAME
+
+## Install locally
+
+To install the example application locally, run:
+
+cargo install --path . --examples
 
 # Development
 
